@@ -8,6 +8,19 @@ const presets = {
 let editingPresetIndex = null;
 let editingPresetCategory = null;
 
+// Track the latest live telemetry from MSFS so re-renders never revert to defaults
+export const currentLiveRadioState = {
+  com1_act: '122.800',
+  com1_stby: '121.500',
+  com2_act: '118.700',
+  com2_stby: '119.100',
+  nav1_act: '110.30',
+  nav1_stby: '113.70',
+  nav2_act: '108.00',
+  nav2_stby: '117.20',
+  xpndr: '1200'
+};
+
 const lastValidFreqs = {
   'com1-stby': '121.500',
   'com2-stby': '119.100',
@@ -23,7 +36,7 @@ let modalInputAttached = false;
 export function renderRadiosPage() {
   return `
     <!-- COM RADIOS SECTION -->
-    <section class="garmin-card">
+    <section class="garmin-card" id="com-radios-card">
       <div class="section-header-row">
         <div class="unit-label">COM 1</div>
         <div class="section-title-center">COM RADIOS</div>
@@ -35,7 +48,7 @@ export function renderRadiosPage() {
         <div class="radio-row-container">
           <div class="freq-block">
             <span class="field-label">ACTIVE</span>
-            <input type="text" class="freq-value active" id="com1-act" value="122.800" readonly />
+            <input type="text" class="freq-value active" id="com1-act" value="${formatCom(currentLiveRadioState.com1_act)}" readonly />
           </div>
           <button class="swap-action-btn" id="com1-swap" aria-label="Swap COM1">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -47,7 +60,7 @@ export function renderRadiosPage() {
           </button>
           <div class="freq-block">
             <span class="field-label">STBY</span>
-            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="com1-stby" value="121.500" />
+            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="com1-stby" value="${formatCom(currentLiveRadioState.com1_stby)}" />
           </div>
         </div>
       </div>
@@ -58,7 +71,7 @@ export function renderRadiosPage() {
         <div class="radio-row-container">
           <div class="freq-block">
             <span class="field-label">ACTIVE</span>
-            <input type="text" class="freq-value active" id="com2-act" value="118.700" readonly />
+            <input type="text" class="freq-value active" id="com2-act" value="${formatCom(currentLiveRadioState.com2_act)}" readonly />
           </div>
           <button class="swap-action-btn" id="com2-swap" aria-label="Swap COM2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -70,17 +83,19 @@ export function renderRadiosPage() {
           </button>
           <div class="freq-block">
             <span class="field-label">STBY</span>
-            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="com2-stby" value="119.100" />
+            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="com2-stby" value="${formatCom(currentLiveRadioState.com2_stby)}" />
           </div>
         </div>
       </div>
 
-      <!-- COM Presets Row -->
-      ${renderPresetsRow('COMM', 'com1')}
+      <!-- COM Presets Row Container -->
+      <div id="presets-row-comm">
+        ${renderPresetsRow('COMM', 'com1')}
+      </div>
     </section>
 
     <!-- NAV RADIOS SECTION -->
-    <section class="garmin-card">
+    <section class="garmin-card" id="nav-radios-card">
       <div class="section-header-row">
         <div class="unit-label">NAV 1</div>
         <div class="section-title-center">NAV RADIOS</div>
@@ -92,7 +107,7 @@ export function renderRadiosPage() {
         <div class="radio-row-container">
           <div class="freq-block">
             <span class="field-label">ACTIVE</span>
-            <input type="text" class="freq-value active" id="nav1-act" value="110.30" readonly />
+            <input type="text" class="freq-value active" id="nav1-act" value="${formatNav(currentLiveRadioState.nav1_act)}" readonly />
           </div>
           <button class="swap-action-btn" id="nav1-swap" aria-label="Swap NAV1">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -104,7 +119,7 @@ export function renderRadiosPage() {
           </button>
           <div class="freq-block">
             <span class="field-label">STBY</span>
-            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="nav1-stby" value="113.70" />
+            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="nav1-stby" value="${formatNav(currentLiveRadioState.nav1_stby)}" />
           </div>
         </div>
       </div>
@@ -115,7 +130,7 @@ export function renderRadiosPage() {
         <div class="radio-row-container">
           <div class="freq-block">
             <span class="field-label">ACTIVE</span>
-            <input type="text" class="freq-value active" id="nav2-act" value="108.00" readonly />
+            <input type="text" class="freq-value active" id="nav2-act" value="${formatNav(currentLiveRadioState.nav2_act)}" readonly />
           </div>
           <button class="swap-action-btn" id="nav2-swap" aria-label="Swap NAV2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -127,13 +142,15 @@ export function renderRadiosPage() {
           </button>
           <div class="freq-block">
             <span class="field-label">STBY</span>
-            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="nav2-stby" value="117.20" />
+            <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box" id="nav2-stby" value="${formatNav(currentLiveRadioState.nav2_stby)}" />
           </div>
         </div>
       </div>
 
-      <!-- NAV Presets Row -->
-      ${renderPresetsRow('NAV', 'nav1')}
+      <!-- NAV Presets Row Container -->
+      <div id="presets-row-nav">
+        ${renderPresetsRow('NAV', 'nav1')}
+      </div>
     </section>
 
     <!-- TRANSPONDER SECTION -->
@@ -143,10 +160,10 @@ export function renderRadiosPage() {
         <div class="xpndr-box">
           <span class="field-label">SQUAWK</span>
           <span id="xpndr-ident-tag" class="ident-active-tag hidden">IDENT</span>
-          <input type="text" inputmode="numeric" enterkeyhint="done" id="xpndr-code" class="xpndr-input" maxlength="4" value="1200" />
+          <input type="text" inputmode="numeric" enterkeyhint="done" id="xpndr-code" class="xpndr-input" maxlength="4" value="${currentLiveRadioState.xpndr || '1200'}" />
         </div>
         <div class="xpndr-actions">
-          <button id="xpndr-vfr-btn" class="xpndr-btn vfr-active">VFR</button>
+          <button id="xpndr-vfr-btn" class="xpndr-btn ${currentLiveRadioState.xpndr === '1200' ? 'vfr-active' : ''}">VFR</button>
           <button id="xpndr-ident" class="xpndr-btn">IDENT</button>
         </div>
       </div>
@@ -224,6 +241,17 @@ function updateVfrButtonState(code) {
 export function updateRadioDisplays(data) {
   const isInputFocused = (id) => document.activeElement === document.getElementById(id);
 
+  // Update internal cache
+  if (data.com1_act) currentLiveRadioState.com1_act = data.com1_act;
+  if (data.com1_stby) currentLiveRadioState.com1_stby = data.com1_stby;
+  if (data.com2_act) currentLiveRadioState.com2_act = data.com2_act;
+  if (data.com2_stby) currentLiveRadioState.com2_stby = data.com2_stby;
+  if (data.nav1_act) currentLiveRadioState.nav1_act = data.nav1_act;
+  if (data.nav1_stby) currentLiveRadioState.nav1_stby = data.nav1_stby;
+  if (data.nav2_act) currentLiveRadioState.nav2_act = data.nav2_act;
+  if (data.nav2_stby) currentLiveRadioState.nav2_stby = data.nav2_stby;
+  if (data.xpndr) currentLiveRadioState.xpndr = data.xpndr;
+
   const c1Act = document.getElementById('com1-act');
   const c1Stby = document.getElementById('com1-stby');
   const c2Act = document.getElementById('com2-act');
@@ -264,20 +292,9 @@ export function updateRadioDisplays(data) {
   }
 }
 
-export function initRadiosEvents() {
-  attachSwapListener('com1-swap', 'RADIO', 'COM1_SWAP');
-  attachSwapListener('com2-swap', 'RADIO', 'COM2_SWAP');
-  attachSwapListener('nav1-swap', 'RADIO', 'NAV1_SWAP');
-  attachSwapListener('nav2-swap', 'RADIO', 'NAV2_SWAP');
-
-  attachSmartFreqListener('com1-stby', 'RADIO', 'COM1_SET', true);
-  attachSmartFreqListener('com2-stby', 'RADIO', 'COM2_SET', true);
-  attachSmartFreqListener('nav1-stby', 'RADIO', 'NAV1_SET', false);
-  attachSmartFreqListener('nav2-stby', 'RADIO', 'NAV2_SET', false);
-
-  initModalSmartInput();
-
-  document.querySelectorAll('.preset-chip').forEach(chip => {
+function bindPresetChipEvents(container) {
+  const chips = container ? container.querySelectorAll('.preset-chip') : document.querySelectorAll('.preset-chip');
+  chips.forEach(chip => {
     chip.addEventListener('click', () => {
       const idx = parseInt(chip.dataset.index);
       const cat = chip.dataset.category;
@@ -306,6 +323,32 @@ export function initRadiosEvents() {
     });
     chip.addEventListener('touchend', () => clearTimeout(pressTimer));
   });
+}
+
+function refreshPresetsRowDOM(category) {
+  const isCom = category === 'COMM';
+  const containerId = isCom ? 'presets-row-comm' : 'presets-row-nav';
+  const targetRadio = isCom ? 'com1' : 'nav1';
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.innerHTML = renderPresetsRow(category, targetRadio);
+    bindPresetChipEvents(container);
+  }
+}
+
+export function initRadiosEvents() {
+  attachSwapListener('com1-swap', 'RADIO', 'COM1_SWAP');
+  attachSwapListener('com2-swap', 'RADIO', 'COM2_SWAP');
+  attachSwapListener('nav1-swap', 'RADIO', 'NAV1_SWAP');
+  attachSwapListener('nav2-swap', 'RADIO', 'NAV2_SWAP');
+
+  attachSmartFreqListener('com1-stby', 'RADIO', 'COM1_SET', true);
+  attachSmartFreqListener('com2-stby', 'RADIO', 'COM2_SET', true);
+  attachSmartFreqListener('nav1-stby', 'RADIO', 'NAV1_SET', false);
+  attachSmartFreqListener('nav2-stby', 'RADIO', 'NAV2_SET', false);
+
+  initModalSmartInput();
+  bindPresetChipEvents();
 
   const identBtn = document.getElementById('xpndr-ident');
   const identTag = document.getElementById('xpndr-ident-tag');
@@ -330,6 +373,7 @@ export function initRadiosEvents() {
       if (input) {
         input.value = '1200';
         lastValidFreqs['xpndr-code'] = '1200';
+        currentLiveRadioState.xpndr = '1200';
         updateVfrButtonState('1200');
       }
       sendSimCommand('ATC', 'XPNDR_SET', '1200');
@@ -356,6 +400,7 @@ export function initRadiosEvents() {
       if (val.length < 4) val = val.padStart(4, '0');
       xpndrInput.value = val;
       lastValidFreqs['xpndr-code'] = val;
+      currentLiveRadioState.xpndr = val;
       updateVfrButtonState(val);
       sendSimCommand('ATC', 'XPNDR_SET', val);
     });
@@ -507,7 +552,6 @@ function openPresetModal(category, index) {
 
   document.getElementById('modal-title').textContent = `Configure ${category} Preset`;
   
-  // Clear inputs completely until the user types
   const labelInput = document.getElementById('modal-label-input');
   const freqInput = document.getElementById('modal-freq-input');
   const errorText = document.getElementById('modal-error-text');
@@ -548,9 +592,8 @@ document.getElementById('modal-done-btn')?.addEventListener('click', () => {
 
     document.getElementById('preset-modal').classList.add('hidden');
     
-    const content = document.getElementById('content-area');
-    content.innerHTML = renderRadiosPage();
-    initRadiosEvents();
+    // Selectively refresh ONLY the modified preset chips without destroying active telemetry
+    refreshPresetsRowDOM(editingPresetCategory);
   } else {
     if (freqInput) freqInput.classList.add('input-error');
     if (errorText) {
