@@ -156,44 +156,30 @@
 
   <script type="module" src="./app.js?v=160"></script>
 
-  <!-- Active Profile Badge Sync (Non-intrusive background listener) -->
+  <!-- Realtime Active Profile Badge Sync -->
   <script>
     (function () {
-      function updateBadge(name) {
+      function applyBadgeText(name) {
         if (!name) return;
-        const badge = document.getElementById('aircraft-model');
-        if (badge) {
-          badge.innerText = name.trim().slice(0, 7).toUpperCase();
+        const el = document.getElementById('aircraft-model');
+        if (el) {
+          el.innerText = name.trim().slice(0, 7).toUpperCase();
         }
       }
 
-      function connectBadgeSocket() {
-        try {
-          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const badgeWs = new WebSocket(`${proto}//${location.host}`);
+      // 1. Initial fetch from direct REST endpoint
+      fetch('/api/active-profile')
+        .then((r) => r.json())
+        .then((d) => applyBadgeText(d.profile_name))
+        .catch(() => {});
 
-          badgeWs.onmessage = (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              if (data.type === 'PROFILE_STATE' && data.profile_name) {
-                updateBadge(data.profile_name);
-              } else if (data.type === 'RADIO_STATE' && data.profile_name) {
-                updateBadge(data.profile_name);
-              }
-            } catch (e) {}
-          };
-
-          badgeWs.onclose = () => {
-            setTimeout(connectBadgeSocket, 3000);
-          };
-        } catch (err) {}
-      }
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', connectBadgeSocket);
-      } else {
-        connectBadgeSocket();
-      }
+      // 2. Poll every 2 seconds to ensure live updates when switching profiles on PC
+      setInterval(() => {
+        fetch('/api/active-profile')
+          .then((r) => r.json())
+          .then((d) => applyBadgeText(d.profile_name))
+          .catch(() => {});
+      }, 2000);
     })();
   </script>
 </body>
