@@ -14,11 +14,13 @@ const lastValidFreqs = {
   'com2-stby': '119.100',
   'nav1-stby': '113.70',
   'nav2-stby': '117.20',
-  'xpndr-code': '1200'
+  'xpndr-code': '1200',
+  'modal-freq-input': '121.500'
 };
 
 const errorTimeouts = {};
 let identTimer = null;
+let modalInputAttached = false;
 
 export function renderRadiosPage() {
   return `
@@ -162,11 +164,14 @@ function renderPresetsRow(category, targetRadio) {
       ${[0, 1, 2, 3].map(i => {
         const item = catPresets[i];
         const hasData = item && item.freq;
-        const displayVal = hasData ? (isCom ? formatCom(item.freq) : formatNav(item.freq)) : '---';
+        const displayFreq = hasData ? (isCom ? formatCom(item.freq) : formatNav(item.freq)) : '---';
+        const displayLabel = (hasData && item.label) ? item.label : '&nbsp;';
         return `
-          <div class="preset-chip" data-category="${category}" data-index="${i}" data-target="${targetRadio}">
-            <span class="preset-val">${displayVal}</span>
-            <span class="preset-lbl">${hasData ? item.label : ''}</span>
+          <div class="preset-wrapper">
+            <span class="preset-top-label">${displayLabel}</span>
+            <div class="preset-chip" data-category="${category}" data-index="${i}" data-target="${targetRadio}">
+              <span class="preset-val">${displayFreq}</span>
+            </div>
           </div>
         `;
       }).join('')}
@@ -272,6 +277,8 @@ export function initRadiosEvents() {
   attachSmartFreqListener('com2-stby', 'RADIO', 'COM2_SET', true);
   attachSmartFreqListener('nav1-stby', 'RADIO', 'NAV1_SET', false);
   attachSmartFreqListener('nav2-stby', 'RADIO', 'NAV2_SET', false);
+
+  initModalSmartInput();
 
   document.querySelectorAll('.preset-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -420,7 +427,9 @@ function attachSmartFreqListener(inputId, category, eventName, isComRadio) {
       el.value = formatted;
       lastValidFreqs[inputId] = formatted;
       el.classList.remove('input-error');
-      sendSimCommand(category, eventName, parseFloat(formatted));
+      if (category && eventName) {
+        sendSimCommand(category, eventName, parseFloat(formatted));
+      }
     } else {
       el.classList.add('input-error');
       errorTimeouts[inputId] = setTimeout(() => {
@@ -431,14 +440,81 @@ function attachSmartFreqListener(inputId, category, eventName, isComRadio) {
   });
 }
 
+function initModalSmartInput() {
+  if (modalInputAttached) return;
+  const el = document.getElementById('modal-freq-input');
+  if (!el) return;
+
+  modalInputAttached = true;
+
+  el.addEventListener('focus', () => {
+    if (errorTimeouts['modal-freq-input']) {
+      clearTimeout(errorTimeouts['modal-freq-input']);
+      el.classList.remove('input-error');
+    }
+    el.value = '1';
+  });
+
+  el.addEventListener('input', () => {
+    const isCom = editingPresetCategory === 'COMM';
+    let rawDigits = el.value.replace(/\D/g, '');
+
+    if (!rawDigits.startsWith('1')) {
+      rawDigits = '1' + rawDigits;
+    }
+
+    const maxDigits = isCom ? 6 : 5;
+    rawDigits = rawDigits.slice(0, maxDigits);
+
+    if (rawDigits.length <= 3) {
+      el.value = rawDigits;
+    } else {
+      el.value = rawDigits.slice(0, 3) + '.' + rawDigits.slice(3);
+    }
+  });
+
+  el.addEventListener('blur', () => {
+    const isCom = editingPresetCategory === 'COMM';
+    const rawVal = el.value.trim();
+
+    if (!rawVal || rawVal === '1') {
+      el.value = lastValidFreqs['modal-freq-input'] || (isCom ? '121.500' : '110.30');
+      return;
+    }
+
+    const isValid = isCom ? isValidComFreq(rawVal) : isValidNavFreq(rawVal);
+
+    if (isValid) {
+      const formatted = isCom ? formatCom(rawVal) : formatNav(rawVal);
+      el.value = formatted;
+      lastValidFreqs['modal-freq-input'] = formatted;
+      el.classList.remove('input-error');
+    } else {
+      el.classList.add('input-error');
+      errorTimeouts['modal-freq-input'] = setTimeout(() => {
+        el.classList.remove('input-error');
+        el.value = lastValidFreqs['modal-freq-input'] || (isCom ? '121.500' : '110.30');
+      }, 1000);
+    }
+  });
+}
+
 function openPresetModal(category, index) {
   editingPresetCategory = category;
   editingPresetIndex = index;
+  const isCom = category === 'COMM';
   const current = presets[category][index] || { label: '', freq: '' };
+
+  const defaultFreq = current.freq || (isCom ? '121.500' : '110.30');
+  const formattedDefault = isCom ? formatCom(defaultFreq) : formatNav(defaultFreq);
 
   document.getElementById('modal-title').textContent = `Configure ${category} Preset`;
   document.getElementById('modal-label-input').value = current.label || '';
-  document.getElementById('modal-freq-input').value = current.freq || '';
+  
+  const freqInput = document.getElementById('modal-freq-input');
+  freqInput.placeholder = isCom ? '121.500' : '110.30';
+  freqInput.value = formattedDefault;
+  lastValidFreqs['modal-freq-input'] = formattedDefault;
 
   const modal = document.getElementById('preset-modal');
   modal.classList.remove('hidden');
@@ -449,19 +525,25 @@ document.getElementById('modal-cancel-btn')?.addEventListener('click', () => {
 });
 
 document.getElementById('modal-done-btn')?.addEventListener('click', () => {
+  const isCom = editingPresetCategory === 'COMM';
   const label = document.getElementById('modal-label-input').value.trim().toUpperCase();
-  const freq = parseFloat(document.getElementById('modal-freq-input').value);
+  const freqInput = document.getElementById('modal-freq-input');
+  const rawVal = freqInput.value.trim();
 
-  if (!isNaN(freq)) {
-    const isCom = editingPresetCategory === 'COMM';
-    const formatted = isCom ? formatCom(freq) : formatNav(freq);
+  const isValid = isCom ? isValidComFreq(rawVal) : isValidNavFreq(rawVal);
+
+  if (isValid) {
+    const formatted = isCom ? formatCom(rawVal) : formatNav(rawVal);
     presets[editingPresetCategory][editingPresetIndex] = { label: label || 'PRE', freq: formatted };
     localStorage.setItem(`msfs_${editingPresetCategory.toLowerCase()}_presets`, JSON.stringify(presets[editingPresetCategory]));
-  }
 
-  document.getElementById('preset-modal').classList.add('hidden');
-  
-  const content = document.getElementById('content-area');
-  content.innerHTML = renderRadiosPage();
-  initRadiosEvents();
+    document.getElementById('preset-modal').classList.add('hidden');
+    
+    const content = document.getElementById('content-area');
+    content.innerHTML = renderRadiosPage();
+    initRadiosEvents();
+  } else {
+    freqInput.classList.add('input-error');
+    setTimeout(() => freqInput.classList.remove('input-error'), 1000);
+  }
 });
