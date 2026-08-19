@@ -434,11 +434,31 @@ input:checked + .slider:before {
 
 /* Invalid Frequency Error State */
 .freq-value.stby-box.input-error,
-.xpndr-input.input-error {
+.xpndr-input.input-error,
+.modal-field input.input-error {
   color: var(--accent-error) !important;
   border-color: var(--accent-error) !important;
   box-shadow: 0 0 12px rgba(255, 51, 68, 0.4) !important;
   text-shadow: 0 0 8px rgba(255, 51, 68, 0.5) !important;
+  animation: modalShake 0.3s ease;
+}
+
+@keyframes modalShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.modal-error-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-error);
+  margin-top: 2px;
+  display: none;
+}
+
+.modal-error-text.visible {
+  display: block;
 }
 
 /* Swap Buttons */
@@ -610,16 +630,17 @@ input:checked + .slider:before {
   transform: scale(0.96);
 }
 
-/* Modal Styling */
+/* Modal Styling - Top Anchored below 60px header */
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.82);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  padding: 68px 16px 20px;
   z-index: 1000;
+  overflow-y: auto;
 }
 
 .modal-overlay.hidden {
@@ -630,12 +651,12 @@ input:checked + .slider:before {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 12px;
-  padding: 20px;
+  padding: 18px 20px;
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   box-shadow: 0 16px 36px var(--shadow-color);
 }
 
@@ -667,6 +688,7 @@ input:checked + .slider:before {
   font-size: 15px;
   font-family: 'Chakra Petch', monospace;
   outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .modal-field input:focus {

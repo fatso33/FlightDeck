@@ -1,4 +1,4 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=200';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=210';
 
 let ws = null;
 let currentPage = 'radios';

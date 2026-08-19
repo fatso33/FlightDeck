@@ -8,14 +8,12 @@ const presets = {
 let editingPresetIndex = null;
 let editingPresetCategory = null;
 
-// Track last valid strings for error/revert states
 const lastValidFreqs = {
   'com1-stby': '121.500',
   'com2-stby': '119.100',
   'nav1-stby': '113.70',
   'nav2-stby': '117.20',
-  'xpndr-code': '1200',
-  'modal-freq-input': '121.500'
+  'xpndr-code': '1200'
 };
 
 const errorTimeouts = {};
@@ -258,7 +256,6 @@ export function updateRadioDisplays(data) {
     lastValidFreqs['nav2-stby'] = n2Stby.value;
   }
 
-  // Live Transponder sync from MSFS
   const xpndr = document.getElementById('xpndr-code');
   if (xpndr && data.xpndr && !isInputFocused('xpndr-code')) {
     xpndr.value = data.xpndr;
@@ -443,23 +440,27 @@ function attachSmartFreqListener(inputId, category, eventName, isComRadio) {
 function initModalSmartInput() {
   if (modalInputAttached) return;
   const el = document.getElementById('modal-freq-input');
+  const errorText = document.getElementById('modal-error-text');
   if (!el) return;
 
   modalInputAttached = true;
 
   el.addEventListener('focus', () => {
-    if (errorTimeouts['modal-freq-input']) {
-      clearTimeout(errorTimeouts['modal-freq-input']);
-      el.classList.remove('input-error');
+    el.classList.remove('input-error');
+    if (errorText) errorText.classList.remove('visible');
+    if (!el.value) {
+      el.value = '1';
     }
-    el.value = '1';
   });
 
   el.addEventListener('input', () => {
+    el.classList.remove('input-error');
+    if (errorText) errorText.classList.remove('visible');
+
     const isCom = editingPresetCategory === 'COMM';
     let rawDigits = el.value.replace(/\D/g, '');
 
-    if (!rawDigits.startsWith('1')) {
+    if (rawDigits.length > 0 && !rawDigits.startsWith('1')) {
       rawDigits = '1' + rawDigits;
     }
 
@@ -474,27 +475,27 @@ function initModalSmartInput() {
   });
 
   el.addEventListener('blur', () => {
-    const isCom = editingPresetCategory === 'COMM';
     const rawVal = el.value.trim();
-
     if (!rawVal || rawVal === '1') {
-      el.value = lastValidFreqs['modal-freq-input'] || (isCom ? '121.500' : '110.30');
+      el.value = '';
       return;
     }
 
+    const isCom = editingPresetCategory === 'COMM';
     const isValid = isCom ? isValidComFreq(rawVal) : isValidNavFreq(rawVal);
 
     if (isValid) {
-      const formatted = isCom ? formatCom(rawVal) : formatNav(rawVal);
-      el.value = formatted;
-      lastValidFreqs['modal-freq-input'] = formatted;
+      el.value = isCom ? formatCom(rawVal) : formatNav(rawVal);
       el.classList.remove('input-error');
+      if (errorText) errorText.classList.remove('visible');
     } else {
       el.classList.add('input-error');
-      errorTimeouts['modal-freq-input'] = setTimeout(() => {
-        el.classList.remove('input-error');
-        el.value = lastValidFreqs['modal-freq-input'] || (isCom ? '121.500' : '110.30');
-      }, 1000);
+      if (errorText) {
+        errorText.textContent = isCom 
+          ? 'Invalid COM frequency (118.000 - 136.975)' 
+          : 'Invalid NAV frequency (108.00 - 117.975)';
+        errorText.classList.add('visible');
+      }
     }
   });
 }
@@ -503,18 +504,23 @@ function openPresetModal(category, index) {
   editingPresetCategory = category;
   editingPresetIndex = index;
   const isCom = category === 'COMM';
-  const current = presets[category][index] || { label: '', freq: '' };
-
-  const defaultFreq = current.freq || (isCom ? '121.500' : '110.30');
-  const formattedDefault = isCom ? formatCom(defaultFreq) : formatNav(defaultFreq);
 
   document.getElementById('modal-title').textContent = `Configure ${category} Preset`;
-  document.getElementById('modal-label-input').value = current.label || '';
   
+  // Clear inputs completely until the user types
+  const labelInput = document.getElementById('modal-label-input');
   const freqInput = document.getElementById('modal-freq-input');
-  freqInput.placeholder = isCom ? '121.500' : '110.30';
-  freqInput.value = formattedDefault;
-  lastValidFreqs['modal-freq-input'] = formattedDefault;
+  const errorText = document.getElementById('modal-error-text');
+
+  if (labelInput) labelInput.value = '';
+  if (freqInput) {
+    freqInput.placeholder = isCom ? '121.500' : '110.30';
+    freqInput.value = '';
+    freqInput.classList.remove('input-error');
+  }
+  if (errorText) {
+    errorText.classList.remove('visible');
+  }
 
   const modal = document.getElementById('preset-modal');
   modal.classList.remove('hidden');
@@ -526,9 +532,12 @@ document.getElementById('modal-cancel-btn')?.addEventListener('click', () => {
 
 document.getElementById('modal-done-btn')?.addEventListener('click', () => {
   const isCom = editingPresetCategory === 'COMM';
-  const label = document.getElementById('modal-label-input').value.trim().toUpperCase();
+  const labelInput = document.getElementById('modal-label-input');
   const freqInput = document.getElementById('modal-freq-input');
-  const rawVal = freqInput.value.trim();
+  const errorText = document.getElementById('modal-error-text');
+
+  const label = labelInput ? labelInput.value.trim().toUpperCase() : '';
+  const rawVal = freqInput ? freqInput.value.trim() : '';
 
   const isValid = isCom ? isValidComFreq(rawVal) : isValidNavFreq(rawVal);
 
@@ -543,7 +552,12 @@ document.getElementById('modal-done-btn')?.addEventListener('click', () => {
     content.innerHTML = renderRadiosPage();
     initRadiosEvents();
   } else {
-    freqInput.classList.add('input-error');
-    setTimeout(() => freqInput.classList.remove('input-error'), 1000);
+    if (freqInput) freqInput.classList.add('input-error');
+    if (errorText) {
+      errorText.textContent = isCom 
+        ? 'Please enter a valid COM frequency (118.000 - 136.975)' 
+        : 'Please enter a valid NAV frequency (108.00 - 117.975)';
+      errorText.classList.add('visible');
+    }
   }
 });
