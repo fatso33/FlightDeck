@@ -1,7 +1,7 @@
 {
-  "name": "MSFS 2024 Garmin Deck",
-  "short_name": "GarminDeck",
-  "description": "Avionics Radio & Transponder Deck for MSFS",
+  "name": "Flight Deck",
+  "short_name": "FlightDeck",
+  "description": "Avionics Deck for MSFS2024",
   "start_url": "./index.html",
   "scope": "./",
   "id": "./index.html",
