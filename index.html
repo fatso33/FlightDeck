@@ -156,36 +156,34 @@
 
   <script type="module" src="./app.js?v=150"></script>
 
-  <!-- Active Profile Badge Sync (Truncated to first 7 characters) -->
+  <!-- Global Profile Badge Interceptor & Updater -->
   <script>
-    (function initProfileBadgeSync() {
-      function hookSocket() {
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${proto}//${location.host}`);
+    (function interceptWebSocketMessages() {
+      function updateBadge(name) {
+        if (!name) return;
+        const badge = document.getElementById('aircraft-model');
+        if (badge) {
+          badge.innerText = name.trim().slice(0, 7).toUpperCase();
+        }
+      }
 
-        ws.onmessage = (event) => {
+      // Hook native WebSocket to intercept all incoming packets without opening extra connections
+      const OriginalWebSocket = window.WebSocket;
+      window.WebSocket = function(...args) {
+        const socket = new OriginalWebSocket(...args);
+        
+        socket.addEventListener('message', (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'PROFILE_STATE' && data.profile_name) {
-              const badge = document.getElementById('aircraft-model');
-              if (badge) {
-                // Truncate to maximum of 7 characters
-                badge.innerText = data.profile_name.trim().slice(0, 7).toUpperCase();
-              }
+            if (data.profile_name) {
+              updateBadge(data.profile_name);
             }
           } catch (e) {}
-        };
+        });
 
-        ws.onclose = () => {
-          setTimeout(hookSocket, 3000);
-        };
-      }
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', hookSocket);
-      } else {
-        hookSocket();
-      }
+        return socket;
+      };
+      window.WebSocket.prototype = OriginalWebSocket.prototype;
     })();
   </script>
 </body>
