@@ -1,15 +1,15 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=100';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=110';
 
 let ws = null;
 let currentPage = 'radios';
 let isMenuOpen = false;
 let deferredPrompt = null;
 
-// Capture the native PWA install prompt immediately
+// Catch the native PWA install event
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('[PWA] 1-Tap install prompt is ready');
+  console.log('[PWA] Native install prompt captured');
 });
 
 // Determine target PC Bridge host (handles local LAN vs GitHub Pages)
@@ -95,7 +95,13 @@ function connectWebSocket() {
     try { ws.close(); } catch (e) {}
   }
 
-  ws = new WebSocket(wsUrl);
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (err) {
+    console.error('[WS Error] Could not construct WebSocket:', err);
+    return;
+  }
+
   const simStatus = document.getElementById('sim-status');
 
   ws.onopen = () => {
@@ -207,11 +213,11 @@ function applyTheme(theme) {
   }
 }
 
-// 1-Tap PWA Installation
+// 1-Tap PWA Installation Handler
 function initPwaInstall() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(() => console.log('[PWA] Service Worker registered'))
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('[PWA] Service Worker registered with relative scope'))
       .catch((err) => console.error('[PWA] Service Worker error:', err));
   }
 
@@ -231,6 +237,8 @@ function initPwaInstall() {
         }
       } else if (isIos) {
         document.getElementById('ios-install-modal')?.classList.remove('hidden');
+      } else {
+        alert('App is already installed, or your browser is ready to install it from the browser menu.');
       }
     });
   }
