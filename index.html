@@ -155,47 +155,5 @@
   </div>
 
   <script type="module" src="./app.js?v=160"></script>
-
-  <!-- Resilient Active Profile Badge Controller -->
-  <script>
-    (function initBadgeManager() {
-      let activeProfileShortName = 'DEFAULT';
-
-      function syncDom() {
-        const badge = document.getElementById('aircraft-model') || document.querySelector('.aircraft-badge');
-        if (badge && badge.innerText !== activeProfileShortName) {
-          badge.innerText = activeProfileShortName;
-        }
-      }
-
-      function updateActiveProfile(name) {
-        if (!name) return;
-        activeProfileShortName = name.trim().slice(0, 7).toUpperCase();
-        syncDom();
-      }
-
-      // 1. Initial REST fetch
-      fetch('/api/active-profile')
-        .then((r) => r.json())
-        .then((d) => updateActiveProfile(d.profile_name))
-        .catch(() => {});
-
-      // 2. Continuous REST sync every 1.5 seconds (no WebSocket interference)
-      setInterval(() => {
-        fetch('/api/active-profile')
-          .then((r) => r.json())
-          .then((d) => updateActiveProfile(d.profile_name))
-          .catch(() => {});
-      }, 1500);
-
-      // 3. MutationObserver prevents SPA redraws in app.js from resetting the badge
-      const observer = new MutationObserver(() => syncDom());
-      window.addEventListener('DOMContentLoaded', () => {
-        syncDom();
-        const header = document.querySelector('.top-bar') || document.body;
-        observer.observe(header, { childList: true, subtree: true, characterData: true });
-      });
-    })();
-  </script>
 </body>
 </html>

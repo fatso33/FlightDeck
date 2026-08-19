@@ -26,6 +26,15 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
 });
 
+// Update the top-right profile badge (truncated to first 7 chars)
+function updateProfileBadge(name) {
+  if (!name) return;
+  const badge = document.getElementById('aircraft-model');
+  if (badge) {
+    badge.innerText = name.trim().slice(0, 7).toUpperCase();
+  }
+}
+
 // Determine target PC Bridge host (handles local LAN vs GitHub Pages)
 function getBridgeHost() {
   const hostname = window.location.hostname;
@@ -132,7 +141,12 @@ function connectWebSocket() {
         } else {
           simStatus.className = 'wifi-badge disconnected';
         }
+      } else if (data.type === 'PROFILE_STATE') {
+        updateProfileBadge(data.profile_name);
       } else if (data.type === 'RADIO_STATE') {
+        if (data.profile_name) {
+          updateProfileBadge(data.profile_name);
+        }
         if (currentPage === 'radios') {
           updateRadioDisplays(data);
         }
@@ -247,7 +261,7 @@ function initPwaInstall() {
         document.getElementById('ios-install-modal')?.classList.remove('hidden');
       } else {
         if (window.matchMedia('(display-mode: standalone)').matches) {
-          alert('Garmin Deck is already running as an installed standalone app.');
+          alert('Flight Deck is already running as an installed standalone app.');
         } else {
           alert('Ready to install: Tap Chrome\'s menu (⋮) -> "Install app".');
         }
@@ -279,6 +293,5 @@ window.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initPwaInstall();
   switchPage('radios');
-  // Defer websocket slightly to allow PWA audit and HTTPS context to settle cleanly
   setTimeout(connectWebSocket, 500);
 });
