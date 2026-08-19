@@ -155,5 +155,37 @@
   </div>
 
   <script type="module" src="./app.js?v=150"></script>
+
+  <!-- Dynamic Aircraft Badge Sync -->
+  <script>
+    (function initAircraftBadgeSync() {
+      function hookSocket() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${location.host}`);
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'RADIO_STATE' && data.aircraft_type) {
+              const badge = document.getElementById('aircraft-model');
+              if (badge && badge.innerText !== data.aircraft_type) {
+                badge.innerText = data.aircraft_type;
+              }
+            }
+          } catch (e) {}
+        };
+
+        ws.onclose = () => {
+          setTimeout(hookSocket, 3000);
+        };
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hookSocket);
+      } else {
+        hookSocket();
+      }
+    })();
+  </script>
 </body>
 </html>
