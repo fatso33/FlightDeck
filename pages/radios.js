@@ -252,6 +252,14 @@ export function updateRadioDisplays(data) {
     n2Stby.value = formatNav(data.nav2_stby);
     lastValidFreqs['nav2-stby'] = n2Stby.value;
   }
+
+  // Transponder live update from MSFS
+  const xpndr = document.getElementById('xpndr-code');
+  if (xpndr && data.xpndr && !isInputFocused('xpndr-code')) {
+    xpndr.value = data.xpndr;
+    lastValidFreqs['xpndr-code'] = data.xpndr;
+    updateVfrButtonState(data.xpndr);
+  }
 }
 
 export function initRadiosEvents() {
@@ -426,7 +434,6 @@ function attachSmartFreqListener(inputId, category, eventName, isComRadio) {
       el.classList.remove('input-error');
       sendSimCommand(category, eventName, parseFloat(formatted));
     } else {
-      // 1-second error highlight before reverting
       el.classList.add('input-error');
       errorTimeouts[inputId] = setTimeout(() => {
         el.classList.remove('input-error');
