@@ -1,15 +1,15 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=110';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=120';
 
 let ws = null;
 let currentPage = 'radios';
 let isMenuOpen = false;
 let deferredPrompt = null;
 
-// Catch the native PWA install event
+// Immediately capture the browser's PWA install banner
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('[PWA] Native install prompt captured');
+  console.log('[PWA] 1-Tap install prompt is ready');
 });
 
 // Determine target PC Bridge host (handles local LAN vs GitHub Pages)
@@ -213,11 +213,11 @@ function applyTheme(theme) {
   }
 }
 
-// 1-Tap PWA Installation Handler
+// 1-Tap PWA Installation
 function initPwaInstall() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then(() => console.log('[PWA] Service Worker registered with relative scope'))
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then((reg) => console.log('[PWA] Service Worker registered:', reg.scope))
       .catch((err) => console.error('[PWA] Service Worker error:', err));
   }
 
@@ -238,7 +238,12 @@ function initPwaInstall() {
       } else if (isIos) {
         document.getElementById('ios-install-modal')?.classList.remove('hidden');
       } else {
-        alert('App is already installed, or your browser is ready to install it from the browser menu.');
+        // Direct browser prompt trigger
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+          alert('App is already running in standalone installed mode!');
+        } else {
+          alert('Tap the three dots (⋮) in Chrome and select "Install app" to launch full-screen.');
+        }
       }
     });
   }

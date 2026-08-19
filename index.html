@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Garmin Deck">
   <meta name="theme-color" content="#0a0c10">
   <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="apple-touch-icon" href="./icon.svg">
   <title>MSFS 2024 Garmin Deck</title>
-  <link rel="stylesheet" href="./style.css?v=110">
+  <link rel="stylesheet" href="./style.css?v=120">
 </head>
 <body>
   <div id="app">
@@ -25,7 +28,7 @@
         </svg>
       </div>
 
-      <!-- Center: Garmin Menu Button (True Horizontal Centering) -->
+      <!-- Center: Garmin Menu Button -->
       <button id="menu-toggle-btn" class="garmin-menu-btn" aria-label="Open Navigation Menu">
         <svg width="24" height="20" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <line x1="2" y1="3" x2="22" y2="3"></line>
@@ -150,6 +153,6 @@
     </div>
   </div>
 
-  <script type="module" src="./app.js?v=110"></script>
+  <script type="module" src="./app.js?v=120"></script>
 </body>
 </html>

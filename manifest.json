@@ -2,22 +2,17 @@
   "name": "MSFS 2024 Garmin Deck",
   "short_name": "GarminDeck",
   "description": "Avionics Radio & Transponder Deck for MSFS",
-  "start_url": "./",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
   "background_color": "#0a0c10",
   "theme_color": "#0a0c10",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='36' fill='%23141721'/><circle cx='96' cy='96' r='55' stroke='%2300ff3c' stroke-width='14' fill='none'/><circle cx='96' cy='96' r='16' fill='%2300ff3c'/></svg>",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='96' fill='%23141721'/><circle cx='256' cy='256' r='150' stroke='%2300ff3c' stroke-width='36' fill='none'/><circle cx='256' cy='256' r='45' fill='%2300ff3c'/></svg>",
-      "sizes": "512x512",
+      "src": "./icon.svg",
+      "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
