@@ -1,4 +1,4 @@
-const CACHE_NAME = 'garmin-deck-v3';
+const CACHE_NAME = 'garmin-deck-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -6,7 +6,9 @@ const ASSETS = [
   './app.js',
   './pages/radios.js',
   './manifest.json',
-  './icon.svg'
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
