@@ -1,15 +1,29 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=120';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=130';
 
 let ws = null;
 let currentPage = 'radios';
 let isMenuOpen = false;
 let deferredPrompt = null;
 
-// Immediately capture the browser's PWA install banner
+// Register Service Worker immediately
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then((reg) => console.log('[PWA] Service Worker active with scope:', reg.scope))
+      .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
+  });
+}
+
+// Capture the 1-tap PWA install event from Chrome
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('[PWA] 1-Tap install prompt is ready');
+  console.log('[PWA] 1-Tap install prompt captured and ready');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[PWA] App successfully installed');
+  deferredPrompt = null;
 });
 
 // Determine target PC Bridge host (handles local LAN vs GitHub Pages)
@@ -55,7 +69,7 @@ const pages = {
   },
   settings: {
     render: () => {
-      const currentIp = localStorage.getItem('msfs_bridge_ip') || window.location.hostname;
+      const currentIp = localStorage.getItem('msfs_bridge_ip') || '10.0.0.222';
       return `
         <section class="garmin-card">
           <div class="section-title-center">SETTINGS</div>
@@ -130,7 +144,7 @@ function connectWebSocket() {
 
   ws.onclose = () => {
     if (simStatus) simStatus.className = 'wifi-badge disconnected';
-    setTimeout(connectWebSocket, 3000);
+    setTimeout(connectWebSocket, 4000);
   };
 }
 
@@ -213,14 +227,8 @@ function applyTheme(theme) {
   }
 }
 
-// 1-Tap PWA Installation
+// 1-Tap PWA Installation Action
 function initPwaInstall() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js', { scope: './' })
-      .then((reg) => console.log('[PWA] Service Worker registered:', reg.scope))
-      .catch((err) => console.error('[PWA] Service Worker error:', err));
-  }
-
   const installBtn = document.getElementById('pwa-install-btn');
   if (installBtn) {
     installBtn.addEventListener('click', async () => {
@@ -231,18 +239,17 @@ function initPwaInstall() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
-        console.log('[PWA] User response:', outcome);
+        console.log('[PWA] Prompt choice:', outcome);
         if (outcome === 'accepted') {
           deferredPrompt = null;
         }
       } else if (isIos) {
         document.getElementById('ios-install-modal')?.classList.remove('hidden');
       } else {
-        // Direct browser prompt trigger
         if (window.matchMedia('(display-mode: standalone)').matches) {
-          alert('App is already running in standalone installed mode!');
+          alert('Garmin Deck is already running as an installed standalone app.');
         } else {
-          alert('Tap the three dots (⋮) in Chrome and select "Install app" to launch full-screen.');
+          alert('Ready to install: Tap Chrome\'s menu (⋮) -> "Install app".');
         }
       }
     });
@@ -271,6 +278,7 @@ document.querySelectorAll('.menu-item-btn[data-page]').forEach(btn => {
 window.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initPwaInstall();
-  connectWebSocket();
   switchPage('radios');
+  // Defer websocket slightly to allow PWA audit and HTTPS context to settle cleanly
+  setTimeout(connectWebSocket, 500);
 });
