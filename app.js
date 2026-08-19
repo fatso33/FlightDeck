@@ -24,6 +24,13 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
 });
 
+// Guard against mobile viewport bounce and pull-to-refresh
+document.addEventListener('touchmove', (e) => {
+  if (!e.target.closest('.modal-overlay, .scrollable')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
 function updateProfileBadge(name) {
   if (!name) return;
   const badge = document.getElementById('aircraft-model');
@@ -247,6 +254,7 @@ function initPwaInstall() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
+        console.log('[PWA] Prompt choice:', outcome);
         if (outcome === 'accepted') {
           deferredPrompt = null;
         }
