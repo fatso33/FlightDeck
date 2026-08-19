@@ -1,11 +1,10 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=160';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=200';
 
 let ws = null;
 let currentPage = 'radios';
 let isMenuOpen = false;
 let deferredPrompt = null;
 
-// Register Service Worker immediately
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js', { scope: './' })
@@ -14,7 +13,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Capture the 1-tap PWA install event from Chrome
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -26,7 +24,6 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
 });
 
-// Update the top-right profile badge (truncated to first 7 chars)
 function updateProfileBadge(name) {
   if (!name) return;
   const badge = document.getElementById('aircraft-model');
@@ -35,7 +32,6 @@ function updateProfileBadge(name) {
   }
 }
 
-// Determine target PC Bridge host (handles local LAN vs GitHub Pages)
 function getBridgeHost() {
   const hostname = window.location.hostname;
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
@@ -206,7 +202,6 @@ function closeMenu() {
   }
 }
 
-// Theme Handling Logic
 function initTheme() {
   const savedTheme = localStorage.getItem('msfs_theme') || 'dark';
   applyTheme(savedTheme);
@@ -241,7 +236,6 @@ function applyTheme(theme) {
   }
 }
 
-// 1-Tap PWA Installation Action
 function initPwaInstall() {
   const installBtn = document.getElementById('pwa-install-btn');
   if (installBtn) {
@@ -253,7 +247,6 @@ function initPwaInstall() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
-        console.log('[PWA] Prompt choice:', outcome);
         if (outcome === 'accepted') {
           deferredPrompt = null;
         }

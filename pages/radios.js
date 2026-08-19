@@ -253,7 +253,7 @@ export function updateRadioDisplays(data) {
     lastValidFreqs['nav2-stby'] = n2Stby.value;
   }
 
-  // Transponder live update from MSFS
+  // Live Transponder sync from MSFS
   const xpndr = document.getElementById('xpndr-code');
   if (xpndr && data.xpndr && !isInputFocused('xpndr-code')) {
     xpndr.value = data.xpndr;
@@ -263,19 +263,16 @@ export function updateRadioDisplays(data) {
 }
 
 export function initRadiosEvents() {
-  // Swaps (mapped directly to profile action keys)
   attachSwapListener('com1-swap', 'RADIO', 'COM1_SWAP');
   attachSwapListener('com2-swap', 'RADIO', 'COM2_SWAP');
   attachSwapListener('nav1-swap', 'RADIO', 'NAV1_SWAP');
   attachSwapListener('nav2-swap', 'RADIO', 'NAV2_SWAP');
 
-  // Frequency Inputs (mapped directly to profile action keys)
   attachSmartFreqListener('com1-stby', 'RADIO', 'COM1_SET', true);
   attachSmartFreqListener('com2-stby', 'RADIO', 'COM2_SET', true);
   attachSmartFreqListener('nav1-stby', 'RADIO', 'NAV1_SET', false);
   attachSmartFreqListener('nav2-stby', 'RADIO', 'NAV2_SET', false);
 
-  // Presets click & long-press handling
   document.querySelectorAll('.preset-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const idx = parseInt(chip.dataset.index);
@@ -306,7 +303,6 @@ export function initRadiosEvents() {
     chip.addEventListener('touchend', () => clearTimeout(pressTimer));
   });
 
-  // IDENT Button (Action Key: XPNDR_IDENT)
   const identBtn = document.getElementById('xpndr-ident');
   const identTag = document.getElementById('xpndr-ident-tag');
   if (identBtn) {
@@ -323,7 +319,6 @@ export function initRadiosEvents() {
     });
   }
 
-  // VFR Button (Action Key: XPNDR_SET with 1200)
   const vfrBtn = document.getElementById('xpndr-vfr-btn');
   if (vfrBtn) {
     vfrBtn.addEventListener('click', () => {
@@ -337,7 +332,6 @@ export function initRadiosEvents() {
     });
   }
 
-  // Transponder Squawk Input (Action Key: XPNDR_SET)
   const xpndrInput = document.getElementById('xpndr-code');
   if (xpndrInput) {
     updateVfrButtonState(xpndrInput.value);
@@ -373,12 +367,6 @@ function attachSwapListener(btnId, category, eventName) {
   }
 }
 
-/**
- * Smart Frequency Input Controller:
- * - Prepopulates with "1" on focus
- * - Auto places decimal after 3rd digit
- * - 1-second invalid error state before reverting
- */
 function attachSmartFreqListener(inputId, category, eventName, isComRadio) {
   const el = document.getElementById(inputId);
   if (!el) return;
