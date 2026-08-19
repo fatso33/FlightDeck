@@ -154,11 +154,11 @@
     </div>
   </div>
 
-  <script type="module" src="./app.js?v=150"></script>
+  <script type="module" src="./app.js?v=160"></script>
 
-  <!-- Global Profile Badge Interceptor & Updater -->
+  <!-- Active Profile Badge Sync (Non-intrusive background listener) -->
   <script>
-    (function interceptWebSocketMessages() {
+    (function () {
       function updateBadge(name) {
         if (!name) return;
         const badge = document.getElementById('aircraft-model');
@@ -167,23 +167,33 @@
         }
       }
 
-      // Hook native WebSocket to intercept all incoming packets without opening extra connections
-      const OriginalWebSocket = window.WebSocket;
-      window.WebSocket = function(...args) {
-        const socket = new OriginalWebSocket(...args);
-        
-        socket.addEventListener('message', (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.profile_name) {
-              updateBadge(data.profile_name);
-            }
-          } catch (e) {}
-        });
+      function connectBadgeSocket() {
+        try {
+          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const badgeWs = new WebSocket(`${proto}//${location.host}`);
 
-        return socket;
-      };
-      window.WebSocket.prototype = OriginalWebSocket.prototype;
+          badgeWs.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'PROFILE_STATE' && data.profile_name) {
+                updateBadge(data.profile_name);
+              } else if (data.type === 'RADIO_STATE' && data.profile_name) {
+                updateBadge(data.profile_name);
+              }
+            } catch (e) {}
+          };
+
+          badgeWs.onclose = () => {
+            setTimeout(connectBadgeSocket, 3000);
+          };
+        } catch (err) {}
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', connectBadgeSocket);
+      } else {
+        connectBadgeSocket();
+      }
     })();
   </script>
 </body>
