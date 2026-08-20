@@ -1,12 +1,15 @@
 Flight Deck is a powerful client-server companion system designed for Microsoft Flight Simulator 2024.
 
+
 The application consists of two primary components: a desktop companion server (PC Bridge) and an interactive touch-screen Web App (PWA).
+
 1. The Desktop Server: PC Bridge
 The newly added PC Bridge directory contains a desktop app built on Electron and Node.js that connects directly to MSFS 2024 and acts as a telemetry and command relay:
 SimConnect Integration: Utilizing the node-simconnect library, the bridge connects to the flight simulator under the connection name 'MSFSControllerBridge'. It automatically subscribes to real-time flight telemetry (such as COM/NAV active and standby frequencies, and Transponder codes) and formats them cleanly for the front-end.
 Configurable Aircraft Profiles: In profileManager.js and profiles.json, the bridge implements an advanced, dynamic profile mapping system. It lets users configure custom mappings of generic web app actions to specific SimConnect events and automatically scales/transforms values (using formats like HZ_INT for Hertz conversion, BCD_HEX for transponder BCD representation, or fixed states).
 Active Profile: A custom A220 aircraft profile is currently configured as active, which dynamically feeds back to the client UI.
 System Tray Companion: The server runs quietly in the system tray. The tray icon is dynamically color-coded: cyan when waiting for MSFS to load, and magenta once the SimConnect connection is active. The tray menu allows users to switch active aircraft profiles on the fly, launch the configuration window (config-ui.html), or inspect connection status.
+
 2. The Front-End Web App
 The user-facing dashboard hosted on GitHub Pages is optimized for mobile tablet displays (such as an iPad mounted in a physical home cockpit)
 . It is a Progressive Web App (PWA)
