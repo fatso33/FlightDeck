@@ -254,6 +254,7 @@ function initPwaInstall() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
+        console.log('[PWA] Prompt choice:', outcome);
         if (outcome === 'accepted') {
           deferredPrompt = null;
         }
