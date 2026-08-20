@@ -1,238 +1,385 @@
-// Autopilot Page Module
-const AutopilotPage = (function () {
-    function render() {
-        return `
-        <div class="autopilot-page page-content">
-            <div class="ap-master-panel card">
-                <div class="ap-main-switches">
-                    <button class="btn btn-ap" id="btn-ap-master" onclick="sendEvent('AP_MASTER')">
-                        <span class="indicator"></span>
-                        <span class="label">AP MASTER</span>
-                    </button>
-                    <button class="btn btn-ap" id="btn-ap-fd" onclick="sendEvent('TOGGLE_FLIGHT_DIRECTOR')">
-                        <span class="indicator"></span>
-                        <span class="label">FLIGHT DIR</span>
-                    </button>
-                    <button class="btn btn-ap" id="btn-ap-yd" onclick="sendEvent('YAW_DAMPER_TOGGLE')">
-                        <span class="indicator"></span>
-                        <span class="label">YAW DAMPER</span>
-                    </button>
-                    <button class="btn btn-ap" id="btn-ap-athr" onclick="sendEvent('AUTO_THROTTLE_ARM')">
-                        <span class="indicator"></span>
-                        <span class="label">A/THR ARM</span>
-                    </button>
-                </div>
-            </div>
+import { sendSimCommand } from '../app.js';
 
-            <div class="ap-modes-grid">
-                <!-- Lateral Modes -->
-                <div class="card ap-mode-card">
-                    <div class="card-header">LATERAL MODES</div>
-                    <div class="mode-buttons">
-                        <button class="btn btn-mode" id="btn-ap-hdg" onclick="sendEvent('AP_HDG_HOLD')">
-                            <span class="indicator"></span> HDG HOLD
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-nav" onclick="sendEvent('AP_NAV1_HOLD')">
-                            <span class="indicator"></span> NAV
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-apr" onclick="sendEvent('AP_APR_HOLD')">
-                            <span class="indicator"></span> APPR
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-bc" onclick="sendEvent('AP_BC_HOLD')">
-                            <span class="indicator"></span> B/C
-                        </button>
-                    </div>
-                </div>
+// State holding current target selections and mode engagements
+let apState = {
+  // Master
+  ap: false,
+  at: false,
+  fd: false,
+  lvl: false,
+  toga: false,
+  yd: false,
 
-                <!-- Vertical Modes -->
-                <div class="card ap-mode-card">
-                    <div class="card-header">VERTICAL MODES</div>
-                    <div class="mode-buttons">
-                        <button class="btn btn-mode" id="btn-ap-alt" onclick="sendEvent('AP_ALT_HOLD')">
-                            <span class="indicator"></span> ALT HOLD
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-vs" onclick="sendEvent('AP_VS_HOLD')">
-                            <span class="indicator"></span> VS HOLD
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-flc" onclick="sendEvent('FLIGHT_LEVEL_CHANGE')">
-                            <span class="indicator"></span> FLC
-                        </button>
-                        <button class="btn btn-mode" id="btn-ap-glid" onclick="sendEvent('AP_PANEL_GLIDEPATH_HOLD')">
-                            <span class="indicator"></span> GLIDESLOPE
-                        </button>
-                    </div>
-                </div>
-            </div>
+  // Lateral
+  hdg_mode: false,
+  nav: false,
+  bc: false,
+  apr: false,
 
-            <!-- AP Targets & Adjusters -->
-            <div class="ap-values-grid">
-                <!-- Heading -->
-                <div class="card val-control-card">
-                    <div class="val-header">HEADING</div>
-                    <div class="val-display" id="disp-ap-hdg">000°</div>
-                    <div class="val-actions">
-                        <button class="btn btn-step" onclick="sendEvent('HEADING_BUG_DEC')">-1</button>
-                        <button class="btn btn-step" onclick="sendEvent('HEADING_BUG_DEC_FAST')">-10</button>
-                        <button class="btn btn-sync" onclick="sendEvent('HEADING_BUG_SYNC')">SYNC</button>
-                        <button class="btn btn-step" onclick="sendEvent('HEADING_BUG_INC_FAST')">+10</button>
-                        <button class="btn btn-step" onclick="sendEvent('HEADING_BUG_INC')">+1</button>
-                    </div>
-                </div>
+  // Vertical
+  alt_mode: false,
+  vnv: false,
+  vs_mode: false,
 
-                <!-- Altitude -->
-                <div class="card val-control-card">
-                    <div class="val-header">ALTITUDE</div>
-                    <div class="val-display" id="disp-ap-alt">00000</div>
-                    <div class="val-actions">
-                        <button class="btn btn-step" onclick="sendEvent('AP_ALT_VAR_DEC_FAST')">-1000</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_ALT_VAR_DEC')">-100</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_ALT_VAR_INC')">+100</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_ALT_VAR_INC_FAST')">+1000</button>
-                    </div>
-                </div>
+  // Speed
+  spd_mode: false,
+  flc: false,
 
-                <!-- Vertical Speed -->
-                <div class="card val-control-card">
-                    <div class="val-header">VERTICAL SPEED</div>
-                    <div class="val-display" id="disp-ap-vs">+0000</div>
-                    <div class="val-actions">
-                        <button class="btn btn-step" onclick="sendEvent('AP_VS_VAR_DEC_FAST')">-500</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_VS_VAR_DEC')">-100</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_VS_VAR_INC')">+100</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_VS_VAR_INC_FAST')">+500</button>
-                    </div>
-                </div>
+  // Digital target selections
+  hdg: 360,
+  crs: 360,
+  alt: 5000,
+  vs: 0,
+  ias: 120
+};
 
-                <!-- Airspeed / Mach -->
-                <div class="card val-control-card">
-                    <div class="val-header">AIRSPEED / FLC</div>
-                    <div class="val-display" id="disp-ap-spd">000 KT</div>
-                    <div class="val-actions">
-                        <button class="btn btn-step" onclick="sendEvent('AP_SPD_VAR_DEC_FAST')">-10</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_SPD_VAR_DEC')">-1</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_SPD_VAR_INC')">+1</button>
-                        <button class="btn btn-step" onclick="sendEvent('AP_SPD_VAR_INC_FAST')">+10</button>
-                    </div>
-                </div>
-            </div>
+export function renderAutopilotPage() {
+  return `
+    <!-- MASTER SECTION -->
+    <section class="garmin-card">
+      <div class="section-title-center">AUTOPILOT MASTER</div>
+
+      <div class="ap-master-toggle-row">
+        <button id="ap-btn-master" class="ap-master-btn ${apState.ap ? 'active' : ''}">AP</button>
+        <div id="ap-led-master" class="ap-led ${apState.ap ? 'on' : ''}"></div>
+        <button id="ap-btn-at" class="ap-master-btn ${apState.at ? 'active' : ''}">AT</button>
+      </div>
+
+      <div class="ap-flex-row">
+        <div class="ap-grid-2x2 ap-flex-2">
+          <button id="ap-btn-fd" class="ap-mode-btn ${apState.fd ? 'active' : ''}">FD</button>
+          <button id="ap-btn-lvl" class="ap-mode-btn ${apState.lvl ? 'active' : ''}">LVL</button>
+          <button id="ap-btn-toga" class="ap-mode-btn ${apState.toga ? 'active' : ''}">TOGA</button>
+          <button id="ap-btn-yd" class="ap-mode-btn ${apState.yd ? 'active' : ''}">YD</button>
         </div>
-        `;
+        <button id="ap-btn-disc" class="ap-disc-btn ap-flex-1">AP DISC</button>
+      </div>
+    </section>
+
+    <!-- LATERAL NAVIGATION SECTION -->
+    <section class="garmin-card">
+      <div class="section-title-center">LATERAL NAVIGATION</div>
+
+      <div class="ap-flex-row">
+        <div class="ap-display-well ap-flex-2">
+          <span class="field-label">HDG</span>
+          <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box ap-display-input" id="ap-hdg-val" value="${formatHeading(apState.hdg)}" />
+        </div>
+        <div class="ap-grid-2x2 ap-flex-3">
+          <button id="ap-btn-hdg-mode" class="ap-mode-btn ${apState.hdg_mode ? 'active' : ''}">HDG</button>
+          <button id="ap-btn-nav" class="ap-mode-btn ${apState.nav ? 'active' : ''}">NAV</button>
+          <button id="ap-btn-bc" class="ap-mode-btn ${apState.bc ? 'active' : ''}">BC</button>
+          <button id="ap-btn-apr" class="ap-mode-btn ${apState.apr ? 'active' : ''}">APR</button>
+        </div>
+      </div>
+
+      <div class="ap-sync-row">
+        <div class="ap-display-well" style="flex:1;">
+          <span class="field-label">CRS</span>
+          <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box ap-display-input" id="ap-crs-val" value="${formatHeading(apState.crs)}" />
+        </div>
+        <button id="ap-btn-crs-sync" class="ap-sync-btn-lg">SYNC</button>
+      </div>
+    </section>
+
+    <!-- VERTICAL NAVIGATION SECTION -->
+    <section class="garmin-card">
+      <div class="section-title-center">VERTICAL NAVIGATION</div>
+
+      <div class="ap-flex-row">
+        <div class="ap-display-well ap-flex-2">
+          <span class="field-label">ALT</span>
+          <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box ap-display-input" id="ap-alt-val" value="${apState.alt}" />
+        </div>
+        <div class="ap-grid-2x2 ap-flex-3">
+          <button id="ap-btn-alt-mode" class="ap-mode-btn ${apState.alt_mode ? 'active' : ''}">ALT</button>
+          <button class="ap-mode-btn ap-btn-unused" disabled aria-hidden="true"></button>
+          <button id="ap-btn-vnv" class="ap-mode-btn ${apState.vnv ? 'active' : ''}">VNV</button>
+          <button id="ap-btn-vs-mode" class="ap-mode-btn ${apState.vs_mode ? 'active' : ''}">VS</button>
+        </div>
+      </div>
+
+      <div class="ap-flex-row">
+        <div class="ap-display-well ap-flex-2">
+          <span class="field-label">&nbsp;</span>
+          <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box ap-display-input" id="ap-vs-val" value="${formatVerticalSpeed(apState.vs)}" />
+        </div>
+        <div class="vs-wheel ap-flex-3" id="vs-wheel" aria-label="Vertical Speed Scroll Wheel">
+          <div class="vs-wheel-ticks" id="vs-wheel-ticks"></div>
+          <div class="vs-wheel-indicator"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SPEED SECTION -->
+    <section class="garmin-card">
+      <div class="section-title-center">AIRSPEED</div>
+
+      <div class="ap-flex-row">
+        <div class="ap-display-well ap-flex-2">
+          <span class="field-label">IAS</span>
+          <input type="text" inputmode="numeric" enterkeyhint="done" class="freq-value stby-box ap-display-input" id="ap-ias-val" value="${apState.ias}" />
+        </div>
+        <div class="ap-grid-2x2 ap-flex-3">
+          <button id="ap-btn-spd-mode" class="ap-mode-btn ${apState.spd_mode ? 'active' : ''}">SPD</button>
+          <button class="ap-mode-btn ap-btn-unused" disabled aria-hidden="true"></button>
+          <button id="ap-btn-flc" class="ap-mode-btn ${apState.flc ? 'active' : ''}">FLC</button>
+          <button class="ap-mode-btn ap-btn-unused" disabled aria-hidden="true"></button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+export function formatHeading(val) {
+  let num = parseInt(val, 10);
+  if (isNaN(num)) return '000';
+  num = ((num - 1) % 360 + 360) % 360 + 1;
+  return String(num).padStart(3, '0');
+}
+
+export function formatVerticalSpeed(val) {
+  const num = parseInt(val, 10);
+  if (isNaN(num)) return '0';
+  return (num > 0 ? `+${num}` : `${num}`);
+}
+
+export function updateAutopilotDisplays(data) {
+  const isInputFocused = (id) => document.activeElement === document.getElementById(id);
+
+  // Sync Mode Enunciations
+  const modeMappings = {
+    'ap-btn-master': data.ap_master,
+    'ap-btn-at': data.ap_at,
+    'ap-btn-fd': data.ap_fd,
+    'ap-btn-lvl': data.ap_lvl,
+    'ap-btn-toga': data.ap_toga,
+    'ap-btn-yd': data.ap_yd,
+    'ap-btn-hdg-mode': data.ap_hdg_mode,
+    'ap-btn-nav': data.ap_nav_mode,
+    'ap-btn-bc': data.ap_bc_mode,
+    'ap-btn-apr': data.ap_apr_mode,
+    'ap-btn-alt-mode': data.ap_alt_mode,
+    'ap-btn-vnv': data.ap_vnv_mode,
+    'ap-btn-vs-mode': data.ap_vs_mode,
+    'ap-btn-spd-mode': data.ap_spd_mode,
+    'ap-btn-flc': data.ap_flc_mode
+  };
+
+  const stateKeyMap = {
+    'ap-btn-master': 'ap',
+    'ap-btn-at': 'at',
+    'ap-btn-fd': 'fd',
+    'ap-btn-lvl': 'lvl',
+    'ap-btn-toga': 'toga',
+    'ap-btn-yd': 'yd',
+    'ap-btn-hdg-mode': 'hdg_mode',
+    'ap-btn-nav': 'nav',
+    'ap-btn-bc': 'bc',
+    'ap-btn-apr': 'apr',
+    'ap-btn-alt-mode': 'alt_mode',
+    'ap-btn-vnv': 'vnv',
+    'ap-btn-vs-mode': 'vs_mode',
+    'ap-btn-spd-mode': 'spd_mode',
+    'ap-btn-flc': 'flc'
+  };
+
+  Object.entries(modeMappings).forEach(([btnId, stateVal]) => {
+    if (stateVal !== undefined) {
+      const key = stateKeyMap[btnId];
+      if (key) apState[key] = !!stateVal;
+
+      const btn = document.getElementById(btnId);
+      if (btn) btn.classList.toggle('active', !!stateVal);
+    }
+  });
+
+  // AP Master LED
+  if (data.ap_master !== undefined) {
+    const led = document.getElementById('ap-led-master');
+    if (led) led.classList.toggle('on', !!data.ap_master);
+  }
+
+  // Sync Input Displays
+  if (data.ap_hdg !== undefined && !isInputFocused('ap-hdg-val')) {
+    apState.hdg = data.ap_hdg;
+    const el = document.getElementById('ap-hdg-val');
+    if (el) el.value = formatHeading(data.ap_hdg);
+  }
+  if (data.ap_crs !== undefined && !isInputFocused('ap-crs-val')) {
+    apState.crs = data.ap_crs;
+    const el = document.getElementById('ap-crs-val');
+    if (el) el.value = formatHeading(data.ap_crs);
+  }
+  if (data.ap_alt !== undefined && !isInputFocused('ap-alt-val')) {
+    apState.alt = data.ap_alt;
+    const el = document.getElementById('ap-alt-val');
+    if (el) el.value = data.ap_alt;
+  }
+  if (data.ap_vs !== undefined && !isInputFocused('ap-vs-val')) {
+    apState.vs = data.ap_vs;
+    const el = document.getElementById('ap-vs-val');
+    if (el) el.value = formatVerticalSpeed(data.ap_vs);
+  }
+  if (data.ap_ias !== undefined && !isInputFocused('ap-ias-val')) {
+    apState.ias = data.ap_ias;
+    const el = document.getElementById('ap-ias-val');
+    if (el) el.value = data.ap_ias;
+  }
+}
+
+export function initAutopilotEvents() {
+  // Simple toggle / trigger buttons (state confirmed back via telemetry)
+  const buttonCommands = [
+    { id: 'ap-btn-master', event: 'AP_MASTER' },
+    { id: 'ap-btn-at', event: 'AUTO_THROTTLE_ARM' },
+    { id: 'ap-btn-fd', event: 'TOGGLE_FLIGHT_DIRECTOR' },
+    { id: 'ap-btn-lvl', event: 'AP_WING_LEVELER' },
+    { id: 'ap-btn-toga', event: 'AP_TOGA' },
+    { id: 'ap-btn-yd', event: 'YAW_DAMPER_TOGGLE' },
+    { id: 'ap-btn-hdg-mode', event: 'AP_PANEL_HEADING_HOLD' },
+    { id: 'ap-btn-nav', event: 'AP_NAV1_HOLD' },
+    { id: 'ap-btn-bc', event: 'AP_BC_HOLD' },
+    { id: 'ap-btn-apr', event: 'AP_APR_HOLD' },
+    { id: 'ap-btn-alt-mode', event: 'AP_PANEL_ALTITUDE_HOLD' },
+    { id: 'ap-btn-vnv', event: 'AP_PANEL_VNAV_HOLD' },
+    { id: 'ap-btn-vs-mode', event: 'AP_PANEL_VS_HOLD' },
+    { id: 'ap-btn-spd-mode', event: 'AP_PANEL_SPEED_HOLD' },
+    { id: 'ap-btn-flc', event: 'FLIGHT_LEVEL_CHANGE' }
+  ];
+
+  buttonCommands.forEach(({ id, event }) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        sendSimCommand('AUTOPILOT', event, 0);
+      });
+    }
+  });
+
+  // AP Disconnect - momentary, gives immediate local feedback
+  const discBtn = document.getElementById('ap-btn-disc');
+  if (discBtn) {
+    discBtn.addEventListener('click', () => {
+      sendSimCommand('AUTOPILOT', 'AUTOPILOT_DISENGAGE_TOGGLE', 0);
+      apState.ap = false;
+      const masterBtn = document.getElementById('ap-btn-master');
+      if (masterBtn) masterBtn.classList.remove('active');
+      const led = document.getElementById('ap-led-master');
+      if (led) led.classList.remove('on');
+    });
+  }
+
+  // CRS Sync
+  const crsSyncBtn = document.getElementById('ap-btn-crs-sync');
+  if (crsSyncBtn) {
+    crsSyncBtn.addEventListener('click', () => {
+      sendSimCommand('AUTOPILOT', 'VOR1_SET', 0);
+    });
+  }
+
+  // Direct Input Listeners
+  attachDirectInput('ap-hdg-val', 'hdg', 'HEADING_BUG_SET', (v) => formatHeading(v), 1, 360);
+  attachDirectInput('ap-crs-val', 'crs', 'VOR1_SET', (v) => formatHeading(v), 1, 360);
+  attachDirectInput('ap-alt-val', 'alt', 'AP_ALT_VAR_SET_ENGLISH', (v) => String(v), 0, 60000);
+  attachDirectInput('ap-vs-val', 'vs', 'AP_VS_VAR_SET_ENGLISH', (v) => formatVerticalSpeed(v), -6000, 6000);
+  attachDirectInput('ap-ias-val', 'ias', 'AP_SPD_VAR_SET', (v) => String(v), 0, 500);
+
+  initVsWheel();
+}
+
+function attachDirectInput(id, stateKey, eventName, formatter, min, max) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  el.addEventListener('focus', () => el.select());
+
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      el.blur();
+    }
+  });
+
+  el.addEventListener('blur', () => {
+    let val = parseInt(el.value.replace(/[^0-9-]/g, ''), 10);
+    if (isNaN(val)) {
+      el.value = formatter(apState[stateKey]);
+      return;
     }
 
-    function init() {}
-    function destroy() {}
-
-    function getVal(state, keys) {
-        if (!state) return undefined;
-        for (const k of keys) {
-            if (state[k] !== undefined) return state[k];
-            const upperUnderscore = k.toUpperCase().replace(/\s+/g, '_');
-            if (state[upperUnderscore] !== undefined) return state[upperUnderscore];
-            const upperSpace = k.toUpperCase().replace(/_/g, ' ');
-            if (state[upperSpace] !== undefined) return state[upperSpace];
-        }
-        return undefined;
+    if (min !== undefined && max !== undefined) {
+      if (stateKey === 'hdg' || stateKey === 'crs') {
+        val = ((val - 1) % 360 + 360) % 360 + 1;
+      } else {
+        val = Math.max(min, Math.min(max, val));
+      }
     }
 
-    function isTrue(val) {
-        return val === true || val === 1 || val === '1' || val === 'true';
+    apState[stateKey] = val;
+    el.value = formatter(val);
+    sendSimCommand('AUTOPILOT', eventName, val);
+  });
+}
+
+// Garmin-style horizontal scroll wheel for Vertical Speed
+function initVsWheel() {
+  const wheel = document.getElementById('vs-wheel');
+  const ticks = document.getElementById('vs-wheel-ticks');
+  if (!wheel || !ticks) return;
+
+  const PX_PER_STEP = 24; // drag distance (px) required per 100 fpm step
+  let dragging = false;
+  let lastX = 0;
+  let accumulated = 0;
+  let tickOffset = 0;
+
+  function updateVsValue(newVal) {
+    newVal = Math.max(-6000, Math.min(6000, newVal));
+    if (newVal === apState.vs) return;
+    apState.vs = newVal;
+    const el = document.getElementById('ap-vs-val');
+    if (el) el.value = formatVerticalSpeed(newVal);
+    sendSimCommand('AUTOPILOT', 'AP_VS_VAR_SET_ENGLISH', newVal);
+  }
+
+  function onPointerDown(e) {
+    dragging = true;
+    lastX = e.clientX;
+    accumulated = 0;
+    wheel.classList.add('dragging');
+    try { wheel.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    lastX = e.clientX;
+
+    tickOffset += dx;
+    ticks.style.backgroundPosition = `${tickOffset}px 0`;
+
+    accumulated += dx;
+    while (accumulated >= PX_PER_STEP) {
+      updateVsValue(apState.vs + 100);
+      accumulated -= PX_PER_STEP;
     }
-
-    function updateBtn(id, active) {
-        const btn = document.getElementById(id);
-        if (!btn) return;
-        if (active) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
+    while (accumulated <= -PX_PER_STEP) {
+      updateVsValue(apState.vs - 100);
+      accumulated += PX_PER_STEP;
     }
+  }
 
-    function update(state) {
-        if (!state) return;
+  function onPointerUp(e) {
+    if (!dragging) return;
+    dragging = false;
+    wheel.classList.remove('dragging');
+    try { wheel.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
 
-        // AP Master & Main Switches
-        const apMaster = getVal(state, ['AUTOPILOT_MASTER', 'AUTOPILOT MASTER', 'AP_MASTER']);
-        if (apMaster !== undefined) updateBtn('btn-ap-master', isTrue(apMaster));
-
-        const fd = getVal(state, ['AUTOPILOT_FLIGHT_DIRECTOR_ACTIVE', 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', 'FLIGHT_DIRECTOR', 'AUTOPILOT_FD']);
-        if (fd !== undefined) updateBtn('btn-ap-fd', isTrue(fd));
-
-        const yd = getVal(state, ['AUTOPILOT_YAW_DAMPER', 'AUTOPILOT YAW DAMPER', 'YAW_DAMPER']);
-        if (yd !== undefined) updateBtn('btn-ap-yd', isTrue(yd));
-
-        const athr = getVal(state, ['AUTOPILOT_THROTTLE_ARM', 'AUTOPILOT THROTTLE ARM', 'AUTO_THROTTLE_ARM']);
-        if (athr !== undefined) updateBtn('btn-ap-athr', isTrue(athr));
-
-        // Lateral Modes
-        const hdgHold = getVal(state, ['AUTOPILOT_HEADING_LOCK', 'AUTOPILOT HEADING LOCK', 'AP_HDG_HOLD']);
-        if (hdgHold !== undefined) updateBtn('btn-ap-hdg', isTrue(hdgHold));
-
-        const navHold = getVal(state, ['AUTOPILOT_NAV1_LOCK', 'AUTOPILOT NAV1 LOCK', 'AP_NAV1_HOLD']);
-        if (navHold !== undefined) updateBtn('btn-ap-nav', isTrue(navHold));
-
-        const aprHold = getVal(state, ['AUTOPILOT_APPROACH_HOLD', 'AUTOPILOT APPROACH HOLD', 'AP_APR_HOLD']);
-        if (aprHold !== undefined) updateBtn('btn-ap-apr', isTrue(aprHold));
-
-        const bcHold = getVal(state, ['AUTOPILOT_BACKCOURSE_HOLD', 'AUTOPILOT BACKCOURSE HOLD', 'AP_BC_HOLD']);
-        if (bcHold !== undefined) updateBtn('btn-ap-bc', isTrue(bcHold));
-
-        // Vertical Modes
-        const altHold = getVal(state, ['AUTOPILOT_ALTITUDE_LOCK', 'AUTOPILOT ALTITUDE LOCK', 'AP_ALT_HOLD']);
-        if (altHold !== undefined) updateBtn('btn-ap-alt', isTrue(altHold));
-
-        const vsHold = getVal(state, ['AUTOPILOT_VERTICAL_HOLD', 'AUTOPILOT VERTICAL HOLD', 'AP_VS_HOLD']);
-        if (vsHold !== undefined) updateBtn('btn-ap-vs', isTrue(vsHold));
-
-        const flcHold = getVal(state, ['AUTOPILOT_FLIGHT_LEVEL_CHANGE', 'AUTOPILOT FLIGHT LEVEL CHANGE', 'FLIGHT_LEVEL_CHANGE']);
-        if (flcHold !== undefined) updateBtn('btn-ap-flc', isTrue(flcHold));
-
-        const gsHold = getVal(state, ['AUTOPILOT_GLIDESLOPE_HOLD', 'AUTOPILOT GLIDESLOPE HOLD', 'AUTOPILOT_GLIDEPATH_HOLD']);
-        if (gsHold !== undefined) updateBtn('btn-ap-glid', isTrue(gsHold));
-
-        // Targets & Values
-        const hdgVal = getVal(state, ['AUTOPILOT_HEADING_LOCK_DIR', 'AUTOPILOT HEADING LOCK DIR', 'HEADING_BUG']);
-        if (hdgVal !== undefined) {
-            const el = document.getElementById('disp-ap-hdg');
-            if (el) {
-                const deg = Math.round(Number(hdgVal)) || 0;
-                el.innerText = `${deg.toString().padStart(3, '0')}°`;
-            }
-        }
-
-        const altVal = getVal(state, ['AUTOPILOT_ALTITUDE_LOCK_VAR', 'AUTOPILOT ALTITUDE LOCK VAR', 'AP_ALTITUDE_TARGET']);
-        if (altVal !== undefined) {
-            const el = document.getElementById('disp-ap-alt');
-            if (el) {
-                const alt = Math.round(Number(altVal)) || 0;
-                el.innerText = alt.toString().padStart(5, '0');
-            }
-        }
-
-        const vsVal = getVal(state, ['AUTOPILOT_VERTICAL_HOLD_VAR', 'AUTOPILOT VERTICAL HOLD VAR', 'AP_VS_TARGET']);
-        if (vsVal !== undefined) {
-            const el = document.getElementById('disp-ap-vs');
-            if (el) {
-                const vs = Math.round(Number(vsVal)) || 0;
-                const sign = vs >= 0 ? '+' : '';
-                el.innerText = `${sign}${vs}`;
-            }
-        }
-
-        const spdVal = getVal(state, ['AUTOPILOT_AIRSPEED_HOLD_VAR', 'AUTOPILOT AIRSPEED HOLD VAR', 'AP_SPD_TARGET']);
-        if (spdVal !== undefined) {
-            const el = document.getElementById('disp-ap-spd');
-            if (el) {
-                const spd = Math.round(Number(spdVal)) || 0;
-                el.innerText = `${spd} KT`;
-            }
-        }
-    }
-
-    return {
-        render,
-        init,
-        destroy,
-        update
-    };
-})();
+  wheel.addEventListener('pointerdown', onPointerDown);
+  wheel.addEventListener('pointermove', onPointerMove);
+  wheel.addEventListener('pointerup', onPointerUp);
+  wheel.addEventListener('pointercancel', onPointerUp);
+  wheel.addEventListener('pointerleave', (e) => { if (dragging) onPointerUp(e); });
+}

@@ -1,310 +1,380 @@
 import express from 'express';
-import http from 'http';
+import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import simconnectPkg from 'node-simconnect';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { open, SimConnectConstants, DataType } from 'node-simconnect';
-import { ProfileManager } from './profileManager.js';
+import os from 'os';
+import { profileManager } from './profileManager.js';
+
+const {
+  open,
+  Protocol,
+  SimConnectDataType,
+  SimConnectConstants,
+  SimConnectPeriod
+} = simconnectPkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const PORT = 3000;
 
-const profileManager = new ProfileManager();
+// SimConnect IDs
+const DEFINITION_RADIO = 1;
+const REQUEST_RADIO = 1;
+const DEFINITION_AUTOPILOT = 2;
+const REQUEST_AUTOPILOT = 2;
 
-// Serve the web client app
-const webClientPath = path.join(__dirname, '..');
-app.use(express.static(webClientPath));
-app.use(express.json());
+let nextEventId = 1000;
+const eventMap = new Map();
+let globalWss = null;
 
-// API Endpoints
-app.get('/api/profiles', (req, res) => {
-    res.json({
-        profiles: profileManager.getAllProfiles(),
-        activeProfile: profileManager.getActiveProfileId()
-    });
-});
+function getActiveProfileName() {
+  const activeProfile = profileManager.getActiveProfile();
+  return activeProfile ? activeProfile.name : 'DEFAULT';
+}
 
-app.post('/api/profiles/active', (req, res) => {
-    const { profileId } = req.body;
-    if (profileManager.setActiveProfile(profileId)) {
-        res.json({ success: true, activeProfile: profileId });
-        broadcast({
-            type: 'PROFILES_LIST',
-            data: {
-                profiles: profileManager.getAllProfiles(),
-                activeProfile: profileManager.getActiveProfileId()
-            }
-        });
-    } else {
-        res.status(404).json({ error: 'Profile not found' });
-    }
-});
+export function broadcastProfileChange() {
+  if (!globalWss) return;
+  const profileName = getActiveProfileName();
+  const msg = JSON.stringify({ 
+    type: 'PROFILE_STATE', 
+    profile_name: profileName 
+  });
+  globalWss.clients.forEach((c) => {
+    if (c.readyState === WebSocket.OPEN) c.send(msg);
+  });
+}
 
-// Broadcast helper
-function broadcast(data) {
-    const message = JSON.stringify(data);
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
+export function startBridgeServer(onStatusCallback) {
+  const app = express();
+  const server = createServer(app);
+  const wss = new WebSocketServer({ server });
+  globalWss = wss;
+
+  app.use(express.static(path.join(__dirname, 'public')));
+
+  let simHandle = null;
+  let isConnectedToSim = false;
+
+  function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
         }
-    });
-}
-
-// -------------------------------------------------------------
-// SimConnect Integration
-// -------------------------------------------------------------
-let simConnect = null;
-let isConnectedToSim = false;
-let reconnectTimer = null;
-
-const DEFINITION_ID = 1;
-const REQUEST_ID = 1;
-
-// Standardized MSFS SimConnect Variable list
-// Verified SimConnect names and valid units
-const SIM_VARS = [
-    // Radios COM
-    { name: 'COM ACTIVE FREQUENCY:1', unit: 'Megahertz', key: 'COM_ACTIVE_FREQUENCY:1' },
-    { name: 'COM STANDBY FREQUENCY:1', unit: 'Megahertz', key: 'COM_STANDBY_FREQUENCY:1' },
-    { name: 'COM ACTIVE FREQUENCY:2', unit: 'Megahertz', key: 'COM_ACTIVE_FREQUENCY:2' },
-    { name: 'COM STANDBY FREQUENCY:2', unit: 'Megahertz', key: 'COM_STANDBY_FREQUENCY:2' },
-
-    // Radios NAV
-    { name: 'NAV ACTIVE FREQUENCY:1', unit: 'Megahertz', key: 'NAV_ACTIVE_FREQUENCY:1' },
-    { name: 'NAV STANDBY FREQUENCY:1', unit: 'Megahertz', key: 'NAV_STANDBY_FREQUENCY:1' },
-    { name: 'NAV ACTIVE FREQUENCY:2', unit: 'Megahertz', key: 'NAV_ACTIVE_FREQUENCY:2' },
-    { name: 'NAV STANDBY FREQUENCY:2', unit: 'Megahertz', key: 'NAV_STANDBY_FREQUENCY:2' },
-
-    // Transponder & Baro
-    { name: 'TRANSPONDER CODE:1', unit: 'BCO16', key: 'TRANSPONDER_CODE:1' },
-    { name: 'KOHLSMAN SETTING HG', unit: 'inHg', key: 'KOHLSMAN_SETTING_HG' },
-
-    // Autopilot Masters & States
-    { name: 'AUTOPILOT MASTER', unit: 'Bool', key: 'AUTOPILOT_MASTER' },
-    { name: 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', unit: 'Bool', key: 'AUTOPILOT_FLIGHT_DIRECTOR_ACTIVE' },
-    { name: 'AUTOPILOT YAW DAMPER', unit: 'Bool', key: 'AUTOPILOT_YAW_DAMPER' },
-    { name: 'AUTOPILOT THROTTLE ARM', unit: 'Bool', key: 'AUTOPILOT_THROTTLE_ARM' },
-
-    // Autopilot Lateral Modes
-    { name: 'AUTOPILOT HEADING LOCK', unit: 'Bool', key: 'AUTOPILOT_HEADING_LOCK' },
-    { name: 'AUTOPILOT NAV1 LOCK', unit: 'Bool', key: 'AUTOPILOT_NAV1_LOCK' },
-    { name: 'AUTOPILOT APPROACH HOLD', unit: 'Bool', key: 'AUTOPILOT_APPROACH_HOLD' },
-    { name: 'AUTOPILOT BACKCOURSE HOLD', unit: 'Bool', key: 'AUTOPILOT_BACKCOURSE_HOLD' },
-
-    // Autopilot Vertical Modes
-    { name: 'AUTOPILOT ALTITUDE LOCK', unit: 'Bool', key: 'AUTOPILOT_ALTITUDE_LOCK' },
-    { name: 'AUTOPILOT VERTICAL HOLD', unit: 'Bool', key: 'AUTOPILOT_VERTICAL_HOLD' },
-    { name: 'AUTOPILOT FLIGHT LEVEL CHANGE', unit: 'Bool', key: 'AUTOPILOT_FLIGHT_LEVEL_CHANGE' },
-    { name: 'AUTOPILOT GLIDESLOPE HOLD', unit: 'Bool', key: 'AUTOPILOT_GLIDESLOPE_HOLD' },
-
-    // Autopilot Targets & Values
-    { name: 'AUTOPILOT HEADING LOCK DIR', unit: 'Degrees', key: 'AUTOPILOT_HEADING_LOCK_DIR' },
-    { name: 'AUTOPILOT ALTITUDE LOCK VAR', unit: 'Feet', key: 'AUTOPILOT_ALTITUDE_LOCK_VAR' },
-    { name: 'AUTOPILOT VERTICAL HOLD VAR', unit: 'Feet per minute', key: 'AUTOPILOT_VERTICAL_HOLD_VAR' },
-    { name: 'AUTOPILOT AIRSPEED HOLD VAR', unit: 'Knots', key: 'AUTOPILOT_AIRSPEED_HOLD_VAR' }
-];
-
-let eventIdCounter = 100;
-const eventIdMap = new Map();
-
-function getEventId(eventName) {
-    if (!eventIdMap.has(eventName)) {
-        eventIdMap.set(eventName, eventIdCounter++);
+      }
     }
-    return eventIdMap.get(eventName);
-}
+    return 'localhost';
+  }
 
-function connectToSim() {
-    if (isConnectedToSim || simConnect) return;
-
-    console.log('[SimConnect] Connecting to MSFS...');
-
-    open('FlightDeck Bridge', (handle, error) => {
-        if (error) {
-            console.log('[SimConnect] Connection failed. Retrying in 5s...');
-            scheduleReconnect();
-            return;
-        }
-
-        simConnect = handle;
-        isConnectedToSim = true;
-        console.log('[SimConnect] Connected to MSFS!');
-
-        broadcast({
-            type: 'SIM_STATUS',
-            data: { connected: true }
-        });
-
-        setupDataDefinitions();
-        setupEvents();
-
-        simConnect.on('close', () => {
-            console.log('[SimConnect] Connection closed.');
-            cleanupSimConnect();
-            scheduleReconnect();
-        });
-
-        simConnect.on('exception', (recvException) => {
-            console.warn('[SimConnect Exception]:', recvException);
-        });
-
-        simConnect.on('simObjectDataByType', (recvSimObjectDataByType) => {
-            if (recvSimObjectDataByType.requestID === REQUEST_ID) {
-                const data = {};
-                try {
-                    const rawBuffer = recvSimObjectDataByType.data;
-                    for (const variable of SIM_VARS) {
-                        // Check if buffer has remaining readable bytes for Float64 (8 bytes)
-                        if (rawBuffer.offset + 8 <= rawBuffer.buffer.length) {
-                            const val = rawBuffer.readFloat64();
-                            data[variable.key] = val;
-                        }
-                    }
-                } catch (e) {
-                    console.error('[SimConnect] Buffer decode error:', e);
-                }
-
-                if (Object.keys(data).length > 0) {
-                    broadcast({
-                        type: 'STATE_UPDATE',
-                        data: data
-                    });
-                }
-            }
-        });
-
-        // Request telemetry data every 200ms
-        simConnect.requestDataOnSimObjectType(
-            REQUEST_ID,
-            DEFINITION_ID,
-            0,
-            SimConnectConstants.SIMOBJECT_TYPE_USER
-        );
-    });
-}
-
-function setupDataDefinitions() {
-    if (!simConnect) return;
-
-    for (const v of SIM_VARS) {
-        simConnect.addToDataDefinition(
-            DEFINITION_ID,
-            v.name,
-            v.unit,
-            DataType.FLOAT64,
-            0,
-            SimConnectConstants.UNUSED
-        );
+  function formatMhz(val, decimals = 3) {
+    if (val === undefined || val === null || isNaN(val) || val === 0) return null;
+    let num = Number(val);
+    if (num > 1000000) {
+      num = num / 1000000;
     }
-}
+    return num.toFixed(decimals);
+  }
 
-function setupEvents() {
-    // Event definitions are bound dynamically in triggerEvent
-}
-
-function triggerEvent(eventName, value = 0) {
-    if (!simConnect || !isConnectedToSim) {
-        console.warn(`[SimConnect] Cannot trigger ${eventName}: Sim not connected.`);
-        return;
+  function getEventId(eventName) {
+    if (eventMap.has(eventName)) {
+      return eventMap.get(eventName);
     }
-
-    const eventId = getEventId(eventName);
-    simConnect.mapClientEventToSimEvent(eventId, eventName);
-    simConnect.transmitClientEvent(
-        SimConnectConstants.OBJECT_ID_USER,
-        eventId,
-        Number(value) || 0,
-        SimConnectConstants.GROUP_PRIORITY_HIGHEST,
-        SimConnectConstants.EVENT_FLAG_GROUPID_IS_PRIORITY
-    );
-}
-
-function cleanupSimConnect() {
-    isConnectedToSim = false;
-    simConnect = null;
-    broadcast({
-        type: 'SIM_STATUS',
-        data: { connected: false }
-    });
-}
-
-function scheduleReconnect() {
-    if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connectToSim();
-        }, 5000);
+    const id = nextEventId++;
+    if (simHandle) {
+      try {
+        simHandle.mapClientEventToSimEvent(id, eventName);
+        eventMap.set(eventName, id);
+      } catch (err) {
+        console.error(`[SimConnect] Failed to map event ${eventName}:`, err);
+      }
     }
-}
+    return id;
+  }
 
-// -------------------------------------------------------------
-// WebSocket Client Handling
-// -------------------------------------------------------------
-wss.on('connection', (ws) => {
-    // Send initial state to newly connected client
-    ws.send(JSON.stringify({
-        type: 'SIM_STATUS',
-        data: { connected: isConnectedToSim }
-    }));
+  async function connectToMSFS() {
+    try {
+      console.log('[SimConnect] Connecting to MSFS...');
+      const connection = await open('MSFSControllerBridge', Protocol.FSX_SP2);
+      simHandle = connection.handle;
+      isConnectedToSim = true;
+      eventMap.clear();
 
-    ws.send(JSON.stringify({
-        type: 'PROFILES_LIST',
-        data: {
-            profiles: profileManager.getAllProfiles(),
-            activeProfile: profileManager.getActiveProfileId()
-        }
-    }));
+      onStatusCallback({ type: 'STATUS', connected: true });
+      broadcastToClients({ type: 'SIM_STATUS', connected: true });
 
-    ws.on('message', (message) => {
+      try {
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'COM ACTIVE FREQUENCY:1', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'COM STANDBY FREQUENCY:1', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'COM ACTIVE FREQUENCY:2', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'COM STANDBY FREQUENCY:2', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'NAV ACTIVE FREQUENCY:1', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'NAV STANDBY FREQUENCY:1', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'NAV ACTIVE FREQUENCY:2', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'NAV STANDBY FREQUENCY:2', 'Megahertz', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_RADIO, 'TRANSPONDER CODE:1', 'BCO16', SimConnectDataType.INT32);
+
+        setTimeout(() => {
+          if (isConnectedToSim && simHandle) {
+            simHandle.requestDataOnSimObject(
+              REQUEST_RADIO,
+              DEFINITION_RADIO,
+              SimConnectConstants.OBJECT_ID_USER,
+              SimConnectPeriod.SIM_FRAME,
+              1
+            );
+          }
+        }, 300);
+
+      } catch (err) {
+        console.error('[SimConnect] Error registering data definition:', err);
+      }
+
+      // ---- AUTOPILOT telemetry definition ----
+      // NOTE: AUTOPILOT MASTER / HEADING LOCK / ALTITUDE LOCK / VERTICAL HOLD /
+      // AIRSPEED HOLD / NAV1 LOCK / APPROACH HOLD / BACKCOURSE HOLD / FLIGHT
+      // LEVEL CHANGE / YAW DAMPER are standard MSFS SimVars and should work on
+      // most default and payware aircraft. AT / LVL / TOGA / VNV are less
+      // universally standardized (some complex/study-level aircraft, including
+      // many add-ons using custom avionics suites like Working Title G3000/CJ4
+      // or Airbus/embedded FMS platforms, expose these only via aircraft-specific
+      // "L:" variables rather than the stock SimVar). If those four buttons don't
+      // light up correctly on a given aircraft, use a SimVar/LVar spy tool
+      // (e.g. the MobiFlight WASM module, or FSUIPC's variable browser) to find
+      // the correct variable for that aircraft and swap it into the
+      // addToDataDefinition calls below.
+      try {
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT MASTER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT THROTTLE ARM', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT WING LEVELER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT TAKEOFF POWER ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT YAW DAMPER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT NAV1 LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT BACKCOURSE HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT APPROACH HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VNAV ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT LEVEL CHANGE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK DIR', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'NAV OBS:1', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots', SimConnectDataType.FLOAT64);
+
+        setTimeout(() => {
+          if (isConnectedToSim && simHandle) {
+            simHandle.requestDataOnSimObject(
+              REQUEST_AUTOPILOT,
+              DEFINITION_AUTOPILOT,
+              SimConnectConstants.OBJECT_ID_USER,
+              SimConnectPeriod.SIM_FRAME,
+              1
+            );
+          }
+        }, 300);
+
+      } catch (err) {
+        console.error('[SimConnect] Error registering autopilot data definition:', err);
+      }
+
+      simHandle.on('simObjectData', (recvSimObjectData) => {
+        if (!recvSimObjectData || !recvSimObjectData.data) return;
+
         try {
-            const parsed = JSON.parse(message.toString());
-            handleClientCommand(parsed);
+          if (recvSimObjectData.requestID === REQUEST_RADIO) {
+            const buf = recvSimObjectData.data;
+
+            const com1Act = buf.readFloat64();
+            const com1Stby = buf.readFloat64();
+            const com2Act = buf.readFloat64();
+            const com2Stby = buf.readFloat64();
+            const nav1Act = buf.readFloat64();
+            const nav1Stby = buf.readFloat64();
+            const nav2Act = buf.readFloat64();
+            const nav2Stby = buf.readFloat64();
+            const xpndrRaw = buf.readInt32();
+
+            // Convert BCO16 (hex representation of octal squawk) to clean 4-digit string
+            const xpndrCode = (xpndrRaw >>> 0).toString(16).padStart(4, '0');
+
+            const payload = {
+              type: 'RADIO_STATE',
+              com1_act: formatMhz(com1Act, 3),
+              com1_stby: formatMhz(com1Stby, 3),
+              com2_act: formatMhz(com2Act, 3),
+              com2_stby: formatMhz(com2Stby, 3),
+              nav1_act: formatMhz(nav1Act, 2),
+              nav1_stby: formatMhz(nav1Stby, 2),
+              nav2_act: formatMhz(nav2Act, 2),
+              nav2_stby: formatMhz(nav2Stby, 2),
+              xpndr: xpndrCode,
+              profile_name: getActiveProfileName()
+            };
+
+            broadcastToClients(payload);
+
+          } else if (recvSimObjectData.requestID === REQUEST_AUTOPILOT) {
+            const buf = recvSimObjectData.data;
+
+            const apMaster = buf.readInt32();
+            const apAt = buf.readInt32();
+            const apFd = buf.readInt32();
+            const apLvl = buf.readInt32();
+            const apToga = buf.readInt32();
+            const apYd = buf.readInt32();
+            const apHdgMode = buf.readInt32();
+            const apNavMode = buf.readInt32();
+            const apBcMode = buf.readInt32();
+            const apAprMode = buf.readInt32();
+            const apAltMode = buf.readInt32();
+            const apVnvMode = buf.readInt32();
+            const apVsMode = buf.readInt32();
+            const apSpdMode = buf.readInt32();
+            const apFlcMode = buf.readInt32();
+            const apHdg = buf.readFloat64();
+            const apCrs = buf.readFloat64();
+            const apAlt = buf.readFloat64();
+            const apVs = buf.readFloat64();
+            const apIas = buf.readFloat64();
+
+            const payload = {
+              type: 'AUTOPILOT_STATE',
+              ap_master: !!apMaster,
+              ap_at: !!apAt,
+              ap_fd: !!apFd,
+              ap_lvl: !!apLvl,
+              ap_toga: !!apToga,
+              ap_yd: !!apYd,
+              ap_hdg_mode: !!apHdgMode,
+              ap_nav_mode: !!apNavMode,
+              ap_bc_mode: !!apBcMode,
+              ap_apr_mode: !!apAprMode,
+              ap_alt_mode: !!apAltMode,
+              ap_vnv_mode: !!apVnvMode,
+              ap_vs_mode: !!apVsMode,
+              ap_spd_mode: !!apSpdMode,
+              ap_flc_mode: !!apFlcMode,
+              ap_hdg: Math.round(apHdg),
+              ap_crs: Math.round(apCrs),
+              ap_alt: Math.round(apAlt),
+              ap_vs: Math.round(apVs),
+              ap_ias: Math.round(apIas)
+            };
+
+            broadcastToClients(payload);
+          }
         } catch (e) {
-            console.error('[WebSocket] Error parsing message:', e);
+          console.error('[SimConnect] Buffer decode error:', e);
         }
-    });
-});
+      });
 
-function handleClientCommand(cmd) {
-    switch (cmd.type) {
-        case 'COMMAND':
-            if (cmd.event) {
-                triggerEvent(cmd.event, cmd.value);
-            }
-            break;
+      simHandle.on('exception', (e) => {
+        console.warn('[SimConnect Exception]:', e);
+      });
 
-        case 'SET_PROFILE':
-            if (cmd.data && cmd.data.profileId) {
-                profileManager.setActiveProfile(cmd.data.profileId);
-                broadcast({
-                    type: 'PROFILES_LIST',
-                    data: {
-                        profiles: profileManager.getAllProfiles(),
-                        activeProfile: profileManager.getActiveProfileId()
-                    }
-                });
-            }
-            break;
+      simHandle.on('close', () => {
+        console.log('[SimConnect] Connection closed.');
+        isConnectedToSim = false;
+        simHandle = null;
+        onStatusCallback({ type: 'STATUS', connected: false });
+        broadcastToClients({ type: 'SIM_STATUS', connected: false });
+        setTimeout(connectToMSFS, 5000);
+      });
 
-        case 'GET_PROFILES':
-            broadcast({
-                type: 'PROFILES_LIST',
-                data: {
-                    profiles: profileManager.getAllProfiles(),
-                    activeProfile: profileManager.getActiveProfileId()
-                }
-            });
-            break;
+    } catch (err) {
+      isConnectedToSim = false;
+      simHandle = null;
+      onStatusCallback({ type: 'STATUS', connected: false });
+      setTimeout(connectToMSFS, 5000);
     }
-}
+  }
 
-// Start Server
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Bridge Server] Running on http://localhost:${PORT}`);
-    connectToSim();
-});
+  function dispatchSimEvent(payload) {
+    const rawAction = payload.event;
+    const rawValue = payload.value;
+
+    const profile = profileManager.getActiveProfile();
+    const mapping = profile.mappings[rawAction] || { event: rawAction, valueFormat: 'RAW_INT' };
+
+    const targetEvent = mapping.event;
+    const finalValue = profileManager.transformValue(mapping.valueFormat, rawValue);
+
+    onStatusCallback({
+      type: 'COMMAND',
+      command: `[${profile.name}] ${rawAction} → ${targetEvent} (${finalValue})`,
+      timestamp: new Date().toLocaleTimeString()
+    });
+
+    if (isConnectedToSim && simHandle) {
+      try {
+        const eventId = getEventId(targetEvent);
+
+        simHandle.transmitClientEvent(
+          SimConnectConstants.OBJECT_ID_USER,
+          eventId,
+          finalValue,
+          SimConnectConstants.GROUP_PRIORITY_HIGHEST || 1,
+          16
+        );
+      } catch (err) {
+        console.error('[Bridge] Command execution failed:', err);
+      }
+    }
+  }
+
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({ type: 'SIM_STATUS', connected: isConnectedToSim }));
+    ws.send(JSON.stringify({ type: 'PROFILE_STATE', profile_name: getActiveProfileName() }));
+
+    if (isConnectedToSim && simHandle) {
+      try {
+        simHandle.requestDataOnSimObject(
+          REQUEST_RADIO,
+          DEFINITION_RADIO,
+          SimConnectConstants.OBJECT_ID_USER,
+          SimConnectPeriod.ONCE
+        );
+        simHandle.requestDataOnSimObject(
+          REQUEST_AUTOPILOT,
+          DEFINITION_AUTOPILOT,
+          SimConnectConstants.OBJECT_ID_USER,
+          SimConnectPeriod.ONCE
+        );
+      } catch {}
+    }
+
+    ws.on('message', (msg) => {
+      try {
+        const data = JSON.parse(msg.toString());
+        if (data.type === 'SIM_COMMAND') {
+          dispatchSimEvent(data);
+        }
+      } catch (err) {
+        console.error('[WS] Parse error:', err);
+      }
+    });
+  });
+
+  function broadcastToClients(data) {
+    const msg = JSON.stringify(data);
+    wss.clients.forEach((c) => {
+      if (c.readyState === WebSocket.OPEN) c.send(msg);
+    });
+  }
+
+  const httpServer = server.listen(PORT, '0.0.0.0', () => {
+    const ip = getLocalIP();
+    console.log(`[Bridge Server] Running on http://${ip}:${PORT}`);
+    onStatusCallback({ type: 'INIT', url: `http://${ip}:${PORT}` });
+    connectToMSFS();
+  });
+
+  return { server: httpServer, wss };
+}
