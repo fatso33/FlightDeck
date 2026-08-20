@@ -1,302 +1,195 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=221';
-import { renderAutopilotPage, initAutopilotEvents, updateAutopilotDisplays } from './pages/autopilot.js?v=221';
+// FlightDeck Web App Controller
+let socket = null;
+let currentPage = null;
+let currentProfile = null;
+let profiles = [];
+let appState = {};
+let reconnectInterval = null;
 
-let ws = null;
-let currentPage = 'radios';
-let isMenuOpen = false;
-let deferredPrompt = null;
+// DOM Elements
+const connectionStatus = document.getElementById('connection-status');
+const statusText = document.getElementById('status-text');
+const profileSelect = document.getElementById('profile-select');
+const pageContainer = document.getElementById('page-container');
+const navItems = document.querySelectorAll('.nav-item');
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js', { scope: './' })
-      .then((reg) => console.log('[PWA] Service Worker active with scope:', reg.scope))
-      .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
-  });
-}
-
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  console.log('[PWA] 1-Tap install prompt captured and ready');
-});
-
-window.addEventListener('appinstalled', () => {
-  console.log('[PWA] App successfully installed');
-  deferredPrompt = null;
-});
-
-// Guard against mobile viewport bounce and pull-to-refresh
-document.addEventListener('touchmove', (e) => {
-  if (!e.target.closest('.modal-overlay, .scrollable')) {
-    e.preventDefault();
-  }
-}, { passive: false });
-
-function updateProfileBadge(name) {
-  if (!name) return;
-  const badge = document.getElementById('aircraft-model');
-  if (badge) {
-    badge.innerText = name.trim().slice(0, 7).toUpperCase();
-  }
-}
-
-function getBridgeHost() {
-  const hostname = window.location.hostname;
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
-
-  if (!isLocalHost) {
-    let savedIp = localStorage.getItem('msfs_bridge_ip');
-    if (!savedIp) {
-      savedIp = prompt('Enter your PC Local IP address (e.g. 10.0.0.222):', '10.0.0.222');
-      if (savedIp) {
-        localStorage.setItem('msfs_bridge_ip', savedIp.trim());
-      }
-    }
-    return `${savedIp || '10.0.0.222'}:3000`;
-  }
-  return `${hostname}:3000`;
-}
-
+// Page registry
 const pages = {
-  radios: {
-    render: renderRadiosPage,
-    init: initRadiosEvents
-  },
-  autopilot: {
-    render: renderAutopilotPage,
-    init: initAutopilotEvents
-  },
-  lights: {
-    render: () => `
-      <section class="garmin-card">
-        <div class="section-title-center">AIRCRAFT LIGHTING</div>
-        <p style="color: var(--text-dim); text-align:center; padding: 40px 10px; font-size: 14px;">Lighting Controls Coming Soon</p>
-      </section>
-    `,
-    init: () => {}
-  },
-  settings: {
-    render: () => {
-      const currentIp = localStorage.getItem('msfs_bridge_ip') || '10.0.0.222';
-      return `
-        <section class="garmin-card">
-          <div class="section-title-center">SETTINGS</div>
-          <div style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;">
-            <div class="modal-field">
-              <label for="settings-ip-input">Bridge PC IP Address</label>
-              <input type="text" id="settings-ip-input" value="${currentIp}" style="width: 100%;" />
-            </div>
-            <button id="save-ip-btn" class="btn-primary" style="margin-top: 4px;">Save & Reconnect</button>
-          </div>
-        </section>
-      `;
-    },
-    init: () => {
-      const saveBtn = document.getElementById('save-ip-btn');
-      const ipInput = document.getElementById('settings-ip-input');
-      if (saveBtn && ipInput) {
-        saveBtn.addEventListener('click', () => {
-          const val = ipInput.value.trim();
-          if (val) {
-            localStorage.setItem('msfs_bridge_ip', val);
-            if (ws) ws.close();
-            connectWebSocket();
-            alert('Bridge IP updated. Reconnecting...');
-          }
-        });
-      }
-    }
-  }
+    radios: RadiosPage,
+    autopilot: AutopilotPage
 };
 
+// Initialize the Application
+function init() {
+    setupNavigation();
+    setupProfileSelector();
+    connectWebSocket();
+    loadPage('radios'); // Default page
+}
+
+// Navigation Handler
+function setupNavigation() {
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pageName = item.getAttribute('data-page');
+            
+            navItems.forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
+            
+            loadPage(pageName);
+        });
+    });
+}
+
+// Load dynamic page content
+function loadPage(pageName) {
+    if (currentPage && pages[currentPage] && typeof pages[currentPage].destroy === 'function') {
+        pages[currentPage].destroy();
+    }
+
+    currentPage = pageName;
+    const pageModule = pages[pageName];
+
+    if (pageModule) {
+        pageContainer.innerHTML = pageModule.render();
+        if (typeof pageModule.init === 'function') {
+            pageModule.init();
+        }
+        // Immediately sync the newly rendered page with the current simulator state
+        if (typeof pageModule.update === 'function') {
+            pageModule.update(appState);
+        }
+    } else {
+        pageContainer.innerHTML = `<div class="p-4 text-center">Page "${pageName}" not found.</div>`;
+    }
+}
+
+// Profile Selector Handler
+function setupProfileSelector() {
+    profileSelect.addEventListener('change', (e) => {
+        const profileId = e.target.value;
+        setProfile(profileId);
+    });
+}
+
+// Set active profile and inform PC Bridge
+function setProfile(profileId) {
+    currentProfile = profileId;
+    sendEvent('SET_PROFILE', { profileId: profileId });
+}
+
+// WebSocket Connection Manager
 function connectWebSocket() {
-  const bridgeHost = getBridgeHost();
-  const wsUrl = `ws://${bridgeHost}`;
-  
-  if (ws) {
-    try { ws.close(); } catch (e) {}
-  }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname || 'localhost';
+    const port = window.location.port || '8080';
+    const wsUrl = `${protocol}//${host}:${port}/ws`;
 
-  try {
-    ws = new WebSocket(wsUrl);
-  } catch (err) {
-    console.error('[WS Error] Could not construct WebSocket:', err);
-    return;
-  }
+    updateConnectionStatus('connecting', 'Connecting...');
 
-  const simStatus = document.getElementById('sim-status');
+    socket = new WebSocket(wsUrl);
 
-  ws.onopen = () => {
-    console.log('[WS] Connected to PC bridge at', wsUrl);
-  };
+    socket.onopen = () => {
+        updateConnectionStatus('connected', 'Connected');
+        clearInterval(reconnectInterval);
+        reconnectInterval = null;
+        sendEvent('GET_PROFILES', {});
+    };
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'SIM_STATUS') {
-        if (data.connected) {
-          simStatus.className = 'wifi-badge connected';
-        } else {
-          simStatus.className = 'wifi-badge disconnected';
+    socket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleIncomingMessage(data);
+        } catch (err) {
+            console.error('Error parsing incoming message:', err);
         }
-      } else if (data.type === 'PROFILE_STATE') {
-        updateProfileBadge(data.profile_name);
-      } else if (data.type === 'RADIO_STATE') {
-        if (data.profile_name) {
-          updateProfileBadge(data.profile_name);
+    };
+
+    socket.onclose = () => {
+        updateConnectionStatus('disconnected', 'Disconnected');
+        if (!reconnectInterval) {
+            reconnectInterval = setInterval(connectWebSocket, 3000);
         }
-        // Always apply telemetry to internal state (and DOM when present),
-        // regardless of which page is currently active. updateRadioDisplays
-        // is null-safe on missing DOM elements, so this just keeps
-        // currentLiveRadioState fresh in the background and the page shows
-        // live values the instant it's opened instead of stale defaults.
-        updateRadioDisplays(data);
-      } else if (data.type === 'AUTOPILOT_STATE' || data.type === 'AP_STATE') {
-        // Same reasoning as above: keep apState fresh at all times so the
-        // Autopilot page loads with current simulator values immediately,
-        // and button/LED states reflect the sim the moment you open it.
-        updateAutopilotDisplays(data);
-      }
-    } catch (e) {
-      console.error('[WS Error]', e);
+    };
+
+    socket.onerror = (err) => {
+        console.error('WebSocket Error:', err);
+        socket.close();
+    };
+}
+
+// Update Header Connection Status Display
+function updateConnectionStatus(status, text) {
+    connectionStatus.className = 'status-indicator ' + status;
+    statusText.innerText = text;
+}
+
+// Message Dispatcher
+function handleIncomingMessage(msg) {
+    switch (msg.type) {
+        case 'PROFILES_LIST':
+            populateProfiles(msg.data.profiles, msg.data.activeProfile);
+            break;
+            
+        case 'STATE_UPDATE':
+            // Merge state
+            appState = { ...appState, ...msg.data };
+            if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
+                pages[currentPage].update(appState);
+            }
+            break;
+
+        case 'SIM_STATUS':
+            if (msg.data && msg.data.connected) {
+                updateConnectionStatus('connected', 'Sim Connected');
+            } else {
+                updateConnectionStatus('connecting', 'Sim Disconnected');
+            }
+            break;
+            
+        default:
+            // Fallback general state update
+            if (msg.data) {
+                appState = { ...appState, ...msg.data };
+                if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
+                    pages[currentPage].update(appState);
+                }
+            }
+            break;
     }
-  };
-
-  ws.onclose = () => {
-    if (simStatus) simStatus.className = 'wifi-badge disconnected';
-    setTimeout(connectWebSocket, 4000);
-  };
 }
 
-export function sendSimCommand(category, event, value) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'SIM_COMMAND',
-      category,
-      event,
-      value
-    }));
-  }
-}
+// Populate the profile drop-down list
+function populateProfiles(profileList, activeId) {
+    profiles = profileList || [];
+    profileSelect.innerHTML = '';
 
-function switchPage(pageKey) {
-  if (!pages[pageKey]) return;
-  currentPage = pageKey;
-
-  document.querySelectorAll('.menu-item-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === pageKey);
-  });
-
-  const content = document.getElementById('content-area');
-  content.innerHTML = pages[pageKey].render();
-  pages[pageKey].init();
-
-  closeMenu();
-}
-
-function toggleMenu() {
-  isMenuOpen = !isMenuOpen;
-  const menuDropdown = document.getElementById('menu-dropdown');
-  if (isMenuOpen) {
-    menuDropdown.classList.add('open');
-  } else {
-    menuDropdown.classList.remove('open');
-  }
-}
-
-function closeMenu() {
-  isMenuOpen = false;
-  const menuDropdown = document.getElementById('menu-dropdown');
-  if (menuDropdown) {
-    menuDropdown.classList.remove('open');
-  }
-}
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('msfs_theme') || 'dark';
-  applyTheme(savedTheme);
-
-  const toggleCheckbox = document.getElementById('theme-toggle-checkbox');
-  if (toggleCheckbox) {
-    toggleCheckbox.checked = (savedTheme === 'light');
-    toggleCheckbox.addEventListener('change', (e) => {
-      const nextTheme = e.target.checked ? 'light' : 'dark';
-      applyTheme(nextTheme);
+    profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.innerText = p.name;
+        if (p.id === activeId) {
+            opt.selected = true;
+            currentProfile = p.id;
+        }
+        profileSelect.appendChild(opt);
     });
-  }
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('msfs_theme', theme);
-
-  const labelText = document.getElementById('theme-label-text');
-  const icon = document.getElementById('theme-icon');
-
-  if (theme === 'light') {
-    if (labelText) labelText.textContent = 'Light Theme';
-    if (icon) {
-      icon.innerHTML = `<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>`;
+// Global Send Event function to trigger SimConnect actions
+window.sendEvent = function(eventName, value) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        const payload = {
+            type: 'COMMAND',
+            event: eventName,
+            value: value !== undefined ? value : null
+        };
+        socket.send(JSON.stringify(payload));
+    } else {
+        console.warn('Socket not open. Failed to send event:', eventName, value);
     }
-  } else {
-    if (labelText) labelText.textContent = 'Dark Theme';
-    if (icon) {
-      icon.innerHTML = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`;
-    }
-  }
-}
+};
 
-function initPwaInstall() {
-  const installBtn = document.getElementById('pwa-install-btn');
-  if (installBtn) {
-    installBtn.addEventListener('click', async () => {
-      closeMenu();
-
-      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log('[PWA] Prompt choice:', outcome);
-        if (outcome === 'accepted') {
-          deferredPrompt = null;
-        }
-      } else if (isIos) {
-        document.getElementById('ios-install-modal')?.classList.remove('hidden');
-      } else {
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-          alert('Flight Deck is already running as an installed standalone app.');
-        } else {
-          alert('Ready to install: Tap Chrome\'s menu (⋮) -> "Install app".');
-        }
-      }
-    });
-  }
-
-  document.getElementById('ios-install-done-btn')?.addEventListener('click', () => {
-    document.getElementById('ios-install-modal')?.classList.add('hidden');
-  });
-}
-
-document.getElementById('menu-toggle-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  toggleMenu();
-});
-
-document.addEventListener('click', (e) => {
-  if (isMenuOpen && !e.target.closest('#menu-dropdown') && !e.target.closest('#menu-toggle-btn')) {
-    closeMenu();
-  }
-});
-
-document.querySelectorAll('.menu-item-btn[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => switchPage(btn.dataset.page));
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initPwaInstall();
-  switchPage('radios');
-  setTimeout(connectWebSocket, 500);
-});
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', init);
