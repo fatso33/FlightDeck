@@ -23,8 +23,19 @@ const PORT = 3000;
 // SimConnect IDs
 const DEFINITION_RADIO = 1;
 const REQUEST_RADIO = 1;
-const DEFINITION_AUTOPILOT = 2;
-const REQUEST_AUTOPILOT = 2;
+
+// Autopilot telemetry is split across THREE independent data definitions
+// instead of one big one. SimConnect rejects an ENTIRE data definition if
+// even a single variable inside it is unrecognized by the sim/aircraft -
+// silently, with no thrown error, just no data ever arriving for that
+// definition. Splitting into core / secondary / vnav means a rejected
+// variable in one group can't take down telemetry for the others.
+const DEFINITION_AP_CORE = 2;   // Long-standing, well-documented SimVars
+const REQUEST_AP_CORE = 2;
+const DEFINITION_AP_EXT = 3;    // AT / LVL / TOGA - present on most aircraft but less universal
+const REQUEST_AP_EXT = 3;
+const DEFINITION_AP_VNAV = 4;   // VNAV - least standardized, isolated on its own
+const REQUEST_AP_VNAV = 4;
 
 let nextEventId = 1000;
 const eventMap = new Map();
@@ -133,55 +144,99 @@ export function startBridgeServer(onStatusCallback) {
         console.error('[SimConnect] Error registering data definition:', err);
       }
 
-      // ---- AUTOPILOT telemetry definition ----
-      // NOTE: AUTOPILOT MASTER / HEADING LOCK / ALTITUDE LOCK / VERTICAL HOLD /
-      // AIRSPEED HOLD / NAV1 LOCK / APPROACH HOLD / BACKCOURSE HOLD / FLIGHT
-      // LEVEL CHANGE / YAW DAMPER are standard MSFS SimVars and should work on
-      // most default and payware aircraft. AT / LVL / TOGA / VNV are less
-      // universally standardized (some complex/study-level aircraft, including
-      // many add-ons using custom avionics suites like Working Title G3000/CJ4
-      // or Airbus/embedded FMS platforms, expose these only via aircraft-specific
-      // "L:" variables rather than the stock SimVar). If those four buttons don't
-      // light up correctly on a given aircraft, use a SimVar/LVar spy tool
-      // (e.g. the MobiFlight WASM module, or FSUIPC's variable browser) to find
-      // the correct variable for that aircraft and swap it into the
-      // addToDataDefinition calls below.
+      // ---- AUTOPILOT telemetry definitions ----
+      // Split into 3 independent definitions on purpose. If ANY single
+      // variable below is unrecognized by the sim/aircraft, MSFS silently
+      // rejects the WHOLE data definition it belongs to - no thrown error,
+      // just no data ever arriving for that request. Splitting into groups
+      // means a rejected variable only takes out its own small group
+      // instead of killing every autopilot field on the page.
+
+      // Group 1 (CORE): long-standing, well-documented SimVars. High
+      // confidence these work on virtually any aircraft.
       try {
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT MASTER', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT THROTTLE ARM', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT WING LEVELER', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT TAKEOFF POWER ACTIVE', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT YAW DAMPER', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT NAV1 LOCK', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT BACKCOURSE HOLD', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT APPROACH HOLD', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VNAV ACTIVE', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT LEVEL CHANGE', 'Bool', SimConnectDataType.INT32);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK DIR', 'Degrees', SimConnectDataType.FLOAT64);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'NAV OBS:1', 'Degrees', SimConnectDataType.FLOAT64);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet', SimConnectDataType.FLOAT64);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute', SimConnectDataType.FLOAT64);
-        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT MASTER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT YAW DAMPER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT HEADING LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT NAV1 LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT BACKCOURSE HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT APPROACH HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT ALTITUDE LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT VERTICAL HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT AIRSPEED HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT FLIGHT LEVEL CHANGE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT HEADING LOCK DIR', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'NAV OBS:1', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AP_CORE, 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots', SimConnectDataType.FLOAT64);
 
         setTimeout(() => {
           if (isConnectedToSim && simHandle) {
             simHandle.requestDataOnSimObject(
-              REQUEST_AUTOPILOT,
-              DEFINITION_AUTOPILOT,
+              REQUEST_AP_CORE,
+              DEFINITION_AP_CORE,
               SimConnectConstants.OBJECT_ID_USER,
               SimConnectPeriod.SIM_FRAME,
               1
             );
           }
         }, 300);
-
       } catch (err) {
-        console.error('[SimConnect] Error registering autopilot data definition:', err);
+        console.error('[SimConnect] Error registering AP core data definition:', err);
+      }
+
+      // Group 2 (EXT): present on most aircraft but less universally
+      // standardized than group 1. On complex/study-level add-ons (custom
+      // avionics suites like Working Title G3000/CJ4, Airbus/FBW-style FMS
+      // platforms) these may only exist as aircraft-specific "L:" variables
+      // instead of the stock SimVar. If AT/LVL/TOGA don't light up on a
+      // given aircraft, use a SimVar/LVar spy tool (e.g. the MobiFlight WASM
+      // module, or FSUIPC's variable browser) to find the correct variable
+      // and swap it in below - it's isolated from group 1 so it can't break
+      // the rest of the page even if wrong.
+      try {
+        simHandle.addToDataDefinition(DEFINITION_AP_EXT, 'AUTOPILOT THROTTLE ARM', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_EXT, 'AUTOPILOT WING LEVELER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AP_EXT, 'AUTOPILOT TAKEOFF POWER ACTIVE', 'Bool', SimConnectDataType.INT32);
+
+        setTimeout(() => {
+          if (isConnectedToSim && simHandle) {
+            simHandle.requestDataOnSimObject(
+              REQUEST_AP_EXT,
+              DEFINITION_AP_EXT,
+              SimConnectConstants.OBJECT_ID_USER,
+              SimConnectPeriod.SIM_FRAME,
+              1
+            );
+          }
+        }, 300);
+      } catch (err) {
+        console.error('[SimConnect] Error registering AP ext data definition:', err);
+      }
+
+      // Group 3 (VNAV): isolated on its own because it's the least
+      // standardized of the bunch and the prime suspect if the whole
+      // autopilot definition was previously getting rejected outright. If
+      // this variable turns out to be invalid, only the VNV button fails
+      // to reflect live state - nothing else on the page is affected.
+      try {
+        simHandle.addToDataDefinition(DEFINITION_AP_VNAV, 'AUTOPILOT VNAV ACTIVE', 'Bool', SimConnectDataType.INT32);
+
+        setTimeout(() => {
+          if (isConnectedToSim && simHandle) {
+            simHandle.requestDataOnSimObject(
+              REQUEST_AP_VNAV,
+              DEFINITION_AP_VNAV,
+              SimConnectConstants.OBJECT_ID_USER,
+              SimConnectPeriod.SIM_FRAME,
+              1
+            );
+          }
+        }, 300);
+      } catch (err) {
+        console.error('[SimConnect] Error registering AP vnav data definition:', err);
       }
 
       simHandle.on('simObjectData', (recvSimObjectData) => {
@@ -220,21 +275,17 @@ export function startBridgeServer(onStatusCallback) {
 
             broadcastToClients(payload);
 
-          } else if (recvSimObjectData.requestID === REQUEST_AUTOPILOT) {
+          } else if (recvSimObjectData.requestID === REQUEST_AP_CORE) {
             const buf = recvSimObjectData.data;
 
             const apMaster = buf.readInt32();
-            const apAt = buf.readInt32();
             const apFd = buf.readInt32();
-            const apLvl = buf.readInt32();
-            const apToga = buf.readInt32();
             const apYd = buf.readInt32();
             const apHdgMode = buf.readInt32();
             const apNavMode = buf.readInt32();
             const apBcMode = buf.readInt32();
             const apAprMode = buf.readInt32();
             const apAltMode = buf.readInt32();
-            const apVnvMode = buf.readInt32();
             const apVsMode = buf.readInt32();
             const apSpdMode = buf.readInt32();
             const apFlcMode = buf.readInt32();
@@ -244,20 +295,16 @@ export function startBridgeServer(onStatusCallback) {
             const apVs = buf.readFloat64();
             const apIas = buf.readFloat64();
 
-            const payload = {
+            broadcastToClients({
               type: 'AUTOPILOT_STATE',
               ap_master: !!apMaster,
-              ap_at: !!apAt,
               ap_fd: !!apFd,
-              ap_lvl: !!apLvl,
-              ap_toga: !!apToga,
               ap_yd: !!apYd,
               ap_hdg_mode: !!apHdgMode,
               ap_nav_mode: !!apNavMode,
               ap_bc_mode: !!apBcMode,
               ap_apr_mode: !!apAprMode,
               ap_alt_mode: !!apAltMode,
-              ap_vnv_mode: !!apVnvMode,
               ap_vs_mode: !!apVsMode,
               ap_spd_mode: !!apSpdMode,
               ap_flc_mode: !!apFlcMode,
@@ -266,9 +313,30 @@ export function startBridgeServer(onStatusCallback) {
               ap_alt: Math.round(apAlt),
               ap_vs: Math.round(apVs),
               ap_ias: Math.round(apIas)
-            };
+            });
 
-            broadcastToClients(payload);
+          } else if (recvSimObjectData.requestID === REQUEST_AP_EXT) {
+            const buf = recvSimObjectData.data;
+
+            const apAt = buf.readInt32();
+            const apLvl = buf.readInt32();
+            const apToga = buf.readInt32();
+
+            broadcastToClients({
+              type: 'AUTOPILOT_STATE',
+              ap_at: !!apAt,
+              ap_lvl: !!apLvl,
+              ap_toga: !!apToga
+            });
+
+          } else if (recvSimObjectData.requestID === REQUEST_AP_VNAV) {
+            const buf = recvSimObjectData.data;
+            const apVnvMode = buf.readInt32();
+
+            broadcastToClients({
+              type: 'AUTOPILOT_STATE',
+              ap_vnv_mode: !!apVnvMode
+            });
           }
         } catch (e) {
           console.error('[SimConnect] Buffer decode error:', e);
@@ -276,7 +344,11 @@ export function startBridgeServer(onStatusCallback) {
       });
 
       simHandle.on('exception', (e) => {
-        console.warn('[SimConnect Exception]:', e);
+        // Logs the raw exception object (typically includes an exception
+        // code and the send ID it relates to) so a rejected variable name
+        // can actually be diagnosed from the bridge app's console/terminal
+        // output instead of failing silently.
+        console.warn('[SimConnect Exception]:', JSON.stringify(e));
       });
 
       simHandle.on('close', () => {
@@ -342,8 +414,20 @@ export function startBridgeServer(onStatusCallback) {
           SimConnectPeriod.ONCE
         );
         simHandle.requestDataOnSimObject(
-          REQUEST_AUTOPILOT,
-          DEFINITION_AUTOPILOT,
+          REQUEST_AP_CORE,
+          DEFINITION_AP_CORE,
+          SimConnectConstants.OBJECT_ID_USER,
+          SimConnectPeriod.ONCE
+        );
+        simHandle.requestDataOnSimObject(
+          REQUEST_AP_EXT,
+          DEFINITION_AP_EXT,
+          SimConnectConstants.OBJECT_ID_USER,
+          SimConnectPeriod.ONCE
+        );
+        simHandle.requestDataOnSimObject(
+          REQUEST_AP_VNAV,
+          DEFINITION_AP_VNAV,
           SimConnectConstants.OBJECT_ID_USER,
           SimConnectPeriod.ONCE
         );
