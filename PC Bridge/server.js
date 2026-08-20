@@ -23,6 +23,8 @@ const PORT = 3000;
 // SimConnect IDs
 const DEFINITION_RADIO = 1;
 const REQUEST_RADIO = 1;
+const DEFINITION_AUTOPILOT = 2;
+const REQUEST_AUTOPILOT = 2;
 
 let nextEventId = 1000;
 const eventMap = new Map();
@@ -131,40 +133,143 @@ export function startBridgeServer(onStatusCallback) {
         console.error('[SimConnect] Error registering data definition:', err);
       }
 
+      // ---- AUTOPILOT telemetry definition ----
+      // NOTE: AUTOPILOT MASTER / HEADING LOCK / ALTITUDE LOCK / VERTICAL HOLD /
+      // AIRSPEED HOLD / NAV1 LOCK / APPROACH HOLD / BACKCOURSE HOLD / FLIGHT
+      // LEVEL CHANGE / YAW DAMPER are standard MSFS SimVars and should work on
+      // most default and payware aircraft. AT / LVL / TOGA / VNV are less
+      // universally standardized (some complex/study-level aircraft, including
+      // many add-ons using custom avionics suites like Working Title G3000/CJ4
+      // or Airbus/embedded FMS platforms, expose these only via aircraft-specific
+      // "L:" variables rather than the stock SimVar). If those four buttons don't
+      // light up correctly on a given aircraft, use a SimVar/LVar spy tool
+      // (e.g. the MobiFlight WASM module, or FSUIPC's variable browser) to find
+      // the correct variable for that aircraft and swap it into the
+      // addToDataDefinition calls below.
+      try {
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT MASTER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT THROTTLE ARM', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT DIRECTOR ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT WING LEVELER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT TAKEOFF POWER ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT YAW DAMPER', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT NAV1 LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT BACKCOURSE HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT APPROACH HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VNAV ACTIVE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT FLIGHT LEVEL CHANGE', 'Bool', SimConnectDataType.INT32);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT HEADING LOCK DIR', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'NAV OBS:1', 'Degrees', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT ALTITUDE LOCK VAR', 'Feet', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT VERTICAL HOLD VAR', 'Feet per minute', SimConnectDataType.FLOAT64);
+        simHandle.addToDataDefinition(DEFINITION_AUTOPILOT, 'AUTOPILOT AIRSPEED HOLD VAR', 'Knots', SimConnectDataType.FLOAT64);
+
+        setTimeout(() => {
+          if (isConnectedToSim && simHandle) {
+            simHandle.requestDataOnSimObject(
+              REQUEST_AUTOPILOT,
+              DEFINITION_AUTOPILOT,
+              SimConnectConstants.OBJECT_ID_USER,
+              SimConnectPeriod.SIM_FRAME,
+              1
+            );
+          }
+        }, 300);
+
+      } catch (err) {
+        console.error('[SimConnect] Error registering autopilot data definition:', err);
+      }
+
       simHandle.on('simObjectData', (recvSimObjectData) => {
         if (!recvSimObjectData || !recvSimObjectData.data) return;
 
         try {
-          const buf = recvSimObjectData.data;
+          if (recvSimObjectData.requestID === REQUEST_RADIO) {
+            const buf = recvSimObjectData.data;
 
-          const com1Act = buf.readFloat64();
-          const com1Stby = buf.readFloat64();
-          const com2Act = buf.readFloat64();
-          const com2Stby = buf.readFloat64();
-          const nav1Act = buf.readFloat64();
-          const nav1Stby = buf.readFloat64();
-          const nav2Act = buf.readFloat64();
-          const nav2Stby = buf.readFloat64();
-          const xpndrRaw = buf.readInt32();
+            const com1Act = buf.readFloat64();
+            const com1Stby = buf.readFloat64();
+            const com2Act = buf.readFloat64();
+            const com2Stby = buf.readFloat64();
+            const nav1Act = buf.readFloat64();
+            const nav1Stby = buf.readFloat64();
+            const nav2Act = buf.readFloat64();
+            const nav2Stby = buf.readFloat64();
+            const xpndrRaw = buf.readInt32();
 
-          // Convert BCO16 (hex representation of octal squawk) to clean 4-digit string
-          const xpndrCode = (xpndrRaw >>> 0).toString(16).padStart(4, '0');
+            // Convert BCO16 (hex representation of octal squawk) to clean 4-digit string
+            const xpndrCode = (xpndrRaw >>> 0).toString(16).padStart(4, '0');
 
-          const payload = {
-            type: 'RADIO_STATE',
-            com1_act: formatMhz(com1Act, 3),
-            com1_stby: formatMhz(com1Stby, 3),
-            com2_act: formatMhz(com2Act, 3),
-            com2_stby: formatMhz(com2Stby, 3),
-            nav1_act: formatMhz(nav1Act, 2),
-            nav1_stby: formatMhz(nav1Stby, 2),
-            nav2_act: formatMhz(nav2Act, 2),
-            nav2_stby: formatMhz(nav2Stby, 2),
-            xpndr: xpndrCode,
-            profile_name: getActiveProfileName()
-          };
+            const payload = {
+              type: 'RADIO_STATE',
+              com1_act: formatMhz(com1Act, 3),
+              com1_stby: formatMhz(com1Stby, 3),
+              com2_act: formatMhz(com2Act, 3),
+              com2_stby: formatMhz(com2Stby, 3),
+              nav1_act: formatMhz(nav1Act, 2),
+              nav1_stby: formatMhz(nav1Stby, 2),
+              nav2_act: formatMhz(nav2Act, 2),
+              nav2_stby: formatMhz(nav2Stby, 2),
+              xpndr: xpndrCode,
+              profile_name: getActiveProfileName()
+            };
 
-          broadcastToClients(payload);
+            broadcastToClients(payload);
+
+          } else if (recvSimObjectData.requestID === REQUEST_AUTOPILOT) {
+            const buf = recvSimObjectData.data;
+
+            const apMaster = buf.readInt32();
+            const apAt = buf.readInt32();
+            const apFd = buf.readInt32();
+            const apLvl = buf.readInt32();
+            const apToga = buf.readInt32();
+            const apYd = buf.readInt32();
+            const apHdgMode = buf.readInt32();
+            const apNavMode = buf.readInt32();
+            const apBcMode = buf.readInt32();
+            const apAprMode = buf.readInt32();
+            const apAltMode = buf.readInt32();
+            const apVnvMode = buf.readInt32();
+            const apVsMode = buf.readInt32();
+            const apSpdMode = buf.readInt32();
+            const apFlcMode = buf.readInt32();
+            const apHdg = buf.readFloat64();
+            const apCrs = buf.readFloat64();
+            const apAlt = buf.readFloat64();
+            const apVs = buf.readFloat64();
+            const apIas = buf.readFloat64();
+
+            const payload = {
+              type: 'AUTOPILOT_STATE',
+              ap_master: !!apMaster,
+              ap_at: !!apAt,
+              ap_fd: !!apFd,
+              ap_lvl: !!apLvl,
+              ap_toga: !!apToga,
+              ap_yd: !!apYd,
+              ap_hdg_mode: !!apHdgMode,
+              ap_nav_mode: !!apNavMode,
+              ap_bc_mode: !!apBcMode,
+              ap_apr_mode: !!apAprMode,
+              ap_alt_mode: !!apAltMode,
+              ap_vnv_mode: !!apVnvMode,
+              ap_vs_mode: !!apVsMode,
+              ap_spd_mode: !!apSpdMode,
+              ap_flc_mode: !!apFlcMode,
+              ap_hdg: Math.round(apHdg),
+              ap_crs: Math.round(apCrs),
+              ap_alt: Math.round(apAlt),
+              ap_vs: Math.round(apVs),
+              ap_ias: Math.round(apIas)
+            };
+
+            broadcastToClients(payload);
+          }
         } catch (e) {
           console.error('[SimConnect] Buffer decode error:', e);
         }
@@ -233,6 +338,12 @@ export function startBridgeServer(onStatusCallback) {
         simHandle.requestDataOnSimObject(
           REQUEST_RADIO,
           DEFINITION_RADIO,
+          SimConnectConstants.OBJECT_ID_USER,
+          SimConnectPeriod.ONCE
+        );
+        simHandle.requestDataOnSimObject(
+          REQUEST_AUTOPILOT,
+          DEFINITION_AUTOPILOT,
           SimConnectConstants.OBJECT_ID_USER,
           SimConnectPeriod.ONCE
         );

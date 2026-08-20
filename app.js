@@ -1,5 +1,5 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=220';
-import { renderAutopilotPage, initAutopilotEvents, updateAutopilotDisplays } from './pages/autopilot.js?v=220';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=221';
+import { renderAutopilotPage, initAutopilotEvents, updateAutopilotDisplays } from './pages/autopilot.js?v=221';
 
 let ws = null;
 let currentPage = 'radios';
@@ -146,13 +146,17 @@ function connectWebSocket() {
         if (data.profile_name) {
           updateProfileBadge(data.profile_name);
         }
-        if (currentPage === 'radios') {
-          updateRadioDisplays(data);
-        }
+        // Always apply telemetry to internal state (and DOM when present),
+        // regardless of which page is currently active. updateRadioDisplays
+        // is null-safe on missing DOM elements, so this just keeps
+        // currentLiveRadioState fresh in the background and the page shows
+        // live values the instant it's opened instead of stale defaults.
+        updateRadioDisplays(data);
       } else if (data.type === 'AUTOPILOT_STATE' || data.type === 'AP_STATE') {
-        if (currentPage === 'autopilot') {
-          updateAutopilotDisplays(data);
-        }
+        // Same reasoning as above: keep apState fresh at all times so the
+        // Autopilot page loads with current simulator values immediately,
+        // and button/LED states reflect the sim the moment you open it.
+        updateAutopilotDisplays(data);
       }
     } catch (e) {
       console.error('[WS Error]', e);
