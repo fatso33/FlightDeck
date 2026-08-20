@@ -6,37 +6,68 @@ let profiles = [];
 let appState = {};
 let reconnectInterval = null;
 
-// DOM Elements
-const connectionStatus = document.getElementById('connection-status');
-const statusText = document.getElementById('status-text');
-const profileSelect = document.getElementById('profile-select');
-const pageContainer = document.getElementById('page-container');
-const navItems = document.querySelectorAll('.nav-item');
-
 // Page registry
 const pages = {
-    radios: RadiosPage,
-    autopilot: AutopilotPage
+    radios: typeof RadiosPage !== 'undefined' ? RadiosPage : null,
+    autopilot: typeof AutopilotPage !== 'undefined' ? AutopilotPage : null
 };
 
-// Initialize the Application
+// Initialize Application on DOM Ready
 function init() {
+    setupDrawer();
     setupNavigation();
     setupProfileSelector();
     connectWebSocket();
     loadPage('radios'); // Default page
 }
 
+// Side Drawer (Menu) Toggle
+function setupDrawer() {
+    const menuBtn = document.getElementById('menu-btn');
+    const drawer = document.getElementById('nav-drawer');
+    const overlay = document.getElementById('menu-overlay');
+
+    function toggleDrawer(open) {
+        if (!drawer || !overlay) return;
+        const isOpen = open !== undefined ? open : !drawer.classList.contains('open');
+        if (isOpen) {
+            drawer.classList.add('open');
+            overlay.classList.add('active');
+        } else {
+            drawer.classList.remove('open');
+            overlay.classList.remove('active');
+        }
+    }
+
+    if (menuBtn) {
+        menuBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleDrawer();
+        });
+    }
+
+    if (overlay) {
+        overlay.addEventListener('click', () => toggleDrawer(false));
+    }
+
+    window.closeDrawer = () => toggleDrawer(false);
+}
+
 // Navigation Handler
 function setupNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const pageName = item.getAttribute('data-page');
-            
+
             navItems.forEach(nav => nav.classList.remove('active'));
             item.classList.add('active');
-            
+
+            if (window.closeDrawer) {
+                window.closeDrawer();
+            }
+
             loadPage(pageName);
         });
     });
@@ -44,6 +75,9 @@ function setupNavigation() {
 
 // Load dynamic page content
 function loadPage(pageName) {
+    const pageContainer = document.getElementById('page-container');
+    if (!pageContainer) return;
+
     if (currentPage && pages[currentPage] && typeof pages[currentPage].destroy === 'function') {
         pages[currentPage].destroy();
     }
@@ -56,7 +90,7 @@ function loadPage(pageName) {
         if (typeof pageModule.init === 'function') {
             pageModule.init();
         }
-        // Immediately sync the newly rendered page with the current simulator state
+        // Immediately sync state with newly rendered template
         if (typeof pageModule.update === 'function') {
             pageModule.update(appState);
         }
@@ -67,13 +101,15 @@ function loadPage(pageName) {
 
 // Profile Selector Handler
 function setupProfileSelector() {
-    profileSelect.addEventListener('change', (e) => {
-        const profileId = e.target.value;
-        setProfile(profileId);
-    });
+    const profileSelect = document.getElementById('profile-select');
+    if (profileSelect) {
+        profileSelect.addEventListener('change', (e) => {
+            const profileId = e.target.value;
+            setProfile(profileId);
+        });
+    }
 }
 
-// Set active profile and inform PC Bridge
 function setProfile(profileId) {
     currentProfile = profileId;
     sendEvent('SET_PROFILE', { profileId: profileId });
@@ -88,7 +124,13 @@ function connectWebSocket() {
 
     updateConnectionStatus('connecting', 'Connecting...');
 
-    socket = new WebSocket(wsUrl);
+    try {
+        socket = new WebSocket(wsUrl);
+    } catch (e) {
+        console.error('WebSocket Init Error:', e);
+        scheduleReconnect();
+        return;
+    }
 
     socket.onopen = () => {
         updateConnectionStatus('connected', 'Connected');
@@ -108,9 +150,7 @@ function connectWebSocket() {
 
     socket.onclose = () => {
         updateConnectionStatus('disconnected', 'Disconnected');
-        if (!reconnectInterval) {
-            reconnectInterval = setInterval(connectWebSocket, 3000);
-        }
+        scheduleReconnect();
     };
 
     socket.onerror = (err) => {
@@ -119,23 +159,42 @@ function connectWebSocket() {
     };
 }
 
+function scheduleReconnect() {
+    if (!reconnectInterval) {
+        reconnectInterval = setInterval(connectWebSocket, 3000);
+    }
+}
+
 // Update Header Connection Status Display
 function updateConnectionStatus(status, text) {
-    connectionStatus.className = 'status-indicator ' + status;
-    statusText.innerText = text;
+    const connectionStatus = document.getElementById('connection-status');
+    const statusText = document.getElementById('status-text');
+
+    if (connectionStatus) {
+        connectionStatus.className = 'status-indicator ' + status;
+    }
+    if (statusText) {
+        statusText.innerText = text;
+    }
 }
 
 // Message Dispatcher
 function handleIncomingMessage(msg) {
+    if (!msg) return;
+
     switch (msg.type) {
         case 'PROFILES_LIST':
-            populateProfiles(msg.data.profiles, msg.data.activeProfile);
+            if (msg.data) {
+                populateProfiles(msg.data.profiles, msg.data.activeProfile);
+            }
             break;
-            
+
         case 'STATE_UPDATE':
-            appState = { ...appState, ...msg.data };
-            if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
-                pages[currentPage].update(appState);
+            if (msg.data) {
+                appState = { ...appState, ...msg.data };
+                if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
+                    pages[currentPage].update(appState);
+                }
             }
             break;
 
@@ -146,7 +205,7 @@ function handleIncomingMessage(msg) {
                 updateConnectionStatus('connecting', 'Sim Disconnected');
             }
             break;
-            
+
         default:
             if (msg.data) {
                 appState = { ...appState, ...msg.data };
@@ -160,6 +219,9 @@ function handleIncomingMessage(msg) {
 
 // Populate the profile drop-down list
 function populateProfiles(profileList, activeId) {
+    const profileSelect = document.getElementById('profile-select');
+    if (!profileSelect) return;
+
     profiles = profileList || [];
     profileSelect.innerHTML = '';
 

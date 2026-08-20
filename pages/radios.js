@@ -1,7 +1,5 @@
 // Radios Page Module
 const RadiosPage = (function () {
-    let container = null;
-
     function render() {
         return `
         <div class="radios-page page-content">
@@ -149,13 +147,8 @@ const RadiosPage = (function () {
         `;
     }
 
-    function init() {
-        container = document.querySelector('.radios-page');
-    }
-
-    function destroy() {
-        container = null;
-    }
+    function init() {}
+    function destroy() {}
 
     function getVal(state, keys) {
         if (!state) return undefined;

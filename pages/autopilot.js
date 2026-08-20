@@ -1,7 +1,5 @@
 // Autopilot Page Module
 const AutopilotPage = (function () {
-    let container = null;
-
     function render() {
         return `
         <div class="autopilot-page page-content">
@@ -121,13 +119,8 @@ const AutopilotPage = (function () {
         `;
     }
 
-    function init() {
-        container = document.querySelector('.autopilot-page');
-    }
-
-    function destroy() {
-        container = null;
-    }
+    function init() {}
+    function destroy() {}
 
     function getVal(state, keys) {
         if (!state) return undefined;
@@ -197,7 +190,7 @@ const AutopilotPage = (function () {
         const gsHold = getVal(state, ['AUTOPILOT_GLIDESLOPE_HOLD', 'AUTOPILOT GLIDESLOPE HOLD', 'AUTOPILOT_GLIDEPATH_HOLD']);
         if (gsHold !== undefined) updateBtn('btn-ap-glid', isTrue(gsHold));
 
-        // Values & Targets
+        // Targets & Values
         const hdgVal = getVal(state, ['AUTOPILOT_HEADING_LOCK_DIR', 'AUTOPILOT HEADING LOCK DIR', 'HEADING_BUG']);
         if (hdgVal !== undefined) {
             const el = document.getElementById('disp-ap-hdg');
