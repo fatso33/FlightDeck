@@ -1,5 +1,5 @@
-import { autopilot } from './pages/autopilot.js';
-import { radios } from './pages/radios.js';
+import { autopilot } from './pages/autopilot.js?v=220';
+import { radios } from './pages/radios.js?v=220';
 
 // Page registry
 const pages = {
