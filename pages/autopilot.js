@@ -43,9 +43,6 @@ const AutopilotPage = (function () {
                         <button class="btn btn-mode" id="btn-ap-bc" onclick="sendEvent('AP_BC_HOLD')">
                             <span class="indicator"></span> B/C
                         </button>
-                        <button class="btn btn-mode" id="btn-ap-bank" onclick="sendEvent('AP_MAX_BANK_INC')">
-                            <span class="indicator"></span> BANK LIM
-                        </button>
                     </div>
                 </div>
 
@@ -63,7 +60,7 @@ const AutopilotPage = (function () {
                             <span class="indicator"></span> FLC
                         </button>
                         <button class="btn btn-mode" id="btn-ap-glid" onclick="sendEvent('AP_PANEL_GLIDEPATH_HOLD')">
-                            <span class="indicator"></span> GLIDEPATH
+                            <span class="indicator"></span> GLIDESLOPE
                         </button>
                     </div>
                 </div>
@@ -161,7 +158,7 @@ const AutopilotPage = (function () {
     function update(state) {
         if (!state) return;
 
-        // AP Master & Switches
+        // AP Master & Main Switches
         const apMaster = getVal(state, ['AUTOPILOT_MASTER', 'AUTOPILOT MASTER', 'AP_MASTER']);
         if (apMaster !== undefined) updateBtn('btn-ap-master', isTrue(apMaster));
 

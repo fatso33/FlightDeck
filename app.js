@@ -83,7 +83,7 @@ function setProfile(profileId) {
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname || 'localhost';
-    const port = window.location.port || '8080';
+    const port = window.location.port || '3000';
     const wsUrl = `${protocol}//${host}:${port}/ws`;
 
     updateConnectionStatus('connecting', 'Connecting...');
@@ -133,7 +133,6 @@ function handleIncomingMessage(msg) {
             break;
             
         case 'STATE_UPDATE':
-            // Merge state
             appState = { ...appState, ...msg.data };
             if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
                 pages[currentPage].update(appState);
@@ -149,7 +148,6 @@ function handleIncomingMessage(msg) {
             break;
             
         default:
-            // Fallback general state update
             if (msg.data) {
                 appState = { ...appState, ...msg.data };
                 if (currentPage && pages[currentPage] && typeof pages[currentPage].update === 'function') {
