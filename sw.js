@@ -1,10 +1,11 @@
-const CACHE_NAME = 'garmin-deck-v4';
+const CACHE_NAME = 'garmin-deck-v5';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './pages/radios.js',
+  './pages/autopilot.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

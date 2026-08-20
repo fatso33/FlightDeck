@@ -1,4 +1,5 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=210';
+import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=220';
+import { renderAutopilotPage, initAutopilotEvents, updateAutopilotDisplays } from './pages/autopilot.js?v=220';
 
 let ws = null;
 let currentPage = 'radios';
@@ -62,13 +63,8 @@ const pages = {
     init: initRadiosEvents
   },
   autopilot: {
-    render: () => `
-      <section class="garmin-card">
-        <div class="section-title-center">AUTOPILOT</div>
-        <p style="color: var(--text-dim); text-align:center; padding: 40px 10px; font-size: 14px;">Autopilot Panel Coming Soon</p>
-      </section>
-    `,
-    init: () => {}
+    render: renderAutopilotPage,
+    init: initAutopilotEvents
   },
   lights: {
     render: () => `
@@ -152,6 +148,10 @@ function connectWebSocket() {
         }
         if (currentPage === 'radios') {
           updateRadioDisplays(data);
+        }
+      } else if (data.type === 'AUTOPILOT_STATE' || data.type === 'AP_STATE') {
+        if (currentPage === 'autopilot') {
+          updateAutopilotDisplays(data);
         }
       }
     } catch (e) {
@@ -254,7 +254,6 @@ function initPwaInstall() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
-        console.log('[PWA] Prompt choice:', outcome);
         if (outcome === 'accepted') {
           deferredPrompt = null;
         }
