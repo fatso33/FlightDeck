@@ -1,298 +1,215 @@
-import { renderRadiosPage, initRadiosEvents, updateRadioDisplays } from './pages/radios.js?v=220';
-import { renderAutopilotPage, initAutopilotEvents, updateAutopilotDisplays } from './pages/autopilot.js?v=220';
+import { autopilot } from './pages/autopilot.js';
+import { radios } from './pages/radios.js';
 
-let ws = null;
-let currentPage = 'radios';
-let isMenuOpen = false;
-let deferredPrompt = null;
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js', { scope: './' })
-      .then((reg) => console.log('[PWA] Service Worker active with scope:', reg.scope))
-      .catch((err) => console.error('[PWA] Service Worker registration failed:', err));
-  });
-}
-
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  console.log('[PWA] 1-Tap install prompt captured and ready');
-});
-
-window.addEventListener('appinstalled', () => {
-  console.log('[PWA] App successfully installed');
-  deferredPrompt = null;
-});
-
-// Guard against mobile viewport bounce and pull-to-refresh
-document.addEventListener('touchmove', (e) => {
-  if (!e.target.closest('.modal-overlay, .scrollable')) {
-    e.preventDefault();
-  }
-}, { passive: false });
-
-function updateProfileBadge(name) {
-  if (!name) return;
-  const badge = document.getElementById('aircraft-model');
-  if (badge) {
-    badge.innerText = name.trim().slice(0, 7).toUpperCase();
-  }
-}
-
-function getBridgeHost() {
-  const hostname = window.location.hostname;
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
-
-  if (!isLocalHost) {
-    let savedIp = localStorage.getItem('msfs_bridge_ip');
-    if (!savedIp) {
-      savedIp = prompt('Enter your PC Local IP address (e.g. 10.0.0.222):', '10.0.0.222');
-      if (savedIp) {
-        localStorage.setItem('msfs_bridge_ip', savedIp.trim());
-      }
-    }
-    return `${savedIp || '10.0.0.222'}:3000`;
-  }
-  return `${hostname}:3000`;
-}
-
+// Page registry
 const pages = {
-  radios: {
-    render: renderRadiosPage,
-    init: initRadiosEvents
-  },
-  autopilot: {
-    render: renderAutopilotPage,
-    init: initAutopilotEvents
-  },
-  lights: {
-    render: () => `
-      <section class="garmin-card">
-        <div class="section-title-center">AIRCRAFT LIGHTING</div>
-        <p style="color: var(--text-dim); text-align:center; padding: 40px 10px; font-size: 14px;">Lighting Controls Coming Soon</p>
-      </section>
-    `,
-    init: () => {}
-  },
-  settings: {
-    render: () => {
-      const currentIp = localStorage.getItem('msfs_bridge_ip') || '10.0.0.222';
-      return `
-        <section class="garmin-card">
-          <div class="section-title-center">SETTINGS</div>
-          <div style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;">
-            <div class="modal-field">
-              <label for="settings-ip-input">Bridge PC IP Address</label>
-              <input type="text" id="settings-ip-input" value="${currentIp}" style="width: 100%;" />
-            </div>
-            <button id="save-ip-btn" class="btn-primary" style="margin-top: 4px;">Save & Reconnect</button>
-          </div>
-        </section>
-      `;
-    },
-    init: () => {
-      const saveBtn = document.getElementById('save-ip-btn');
-      const ipInput = document.getElementById('settings-ip-input');
-      if (saveBtn && ipInput) {
-        saveBtn.addEventListener('click', () => {
-          const val = ipInput.value.trim();
-          if (val) {
-            localStorage.setItem('msfs_bridge_ip', val);
-            if (ws) ws.close();
-            connectWebSocket();
-            alert('Bridge IP updated. Reconnecting...');
-          }
-        });
-      }
-    }
-  }
+    autopilot,
+    radios
 };
 
+// Global simulator state cache (accumulates all received telemetry)
+const simState = {};
+
+let activePage = 'autopilot';
+let ws = null;
+let reconnectInterval = null;
+
+// DOM Elements
+const content = document.getElementById('content');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const navButtons = document.querySelectorAll('.nav-btn');
+
+/**
+ * Send command/event payload to the PC Bridge
+ * @param {object|string} data 
+ */
+export function send(data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const payload = typeof data === 'string' ? data : JSON.stringify(data);
+        ws.send(payload);
+    } else {
+        console.warn('[FlightDeck] Cannot send message, WebSocket not connected:', data);
+    }
+}
+
+/**
+ * Helper to trigger SimConnect events
+ * @param {string} event 
+ * @param {number} [value=0] 
+ */
+export function sendEvent(event, value = 0) {
+    send({
+        type: 'event',
+        event,
+        value
+    });
+}
+
+/**
+ * Switch active page, render DOM, attach events, and immediately sync simulator state
+ * @param {string} pageName 
+ */
+export function setPage(pageName) {
+    if (!pages[pageName]) {
+        console.error(`[FlightDeck] Page "${pageName}" not found.`);
+        return;
+    }
+
+    activePage = pageName;
+
+    // Update navigation bar button states
+    navButtons.forEach((btn) => {
+        if (btn.dataset.page === pageName) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    const page = pages[pageName];
+
+    // 1. Render page HTML into content container
+    if (content && typeof page.render === 'function') {
+        content.innerHTML = page.render();
+    }
+
+    // 2. Attach page event listeners
+    if (typeof page.init === 'function') {
+        page.init(send);
+    }
+
+    // 3. Immediately synchronize newly active page with the accumulated state cache
+    if (typeof page.update === 'function') {
+        try {
+            page.update(simState);
+        } catch (err) {
+            console.error(`[FlightDeck] Error updating page "${pageName}" on activation:`, err);
+        }
+    }
+}
+
+/**
+ * Process incoming WebSocket data: update global cache and active page
+ * @param {object} data 
+ */
+function handleData(data) {
+    if (!data || typeof data !== 'object') return;
+
+    // Merge incoming values into master cache
+    for (const [key, value] of Object.entries(data)) {
+        if (key !== 'type') {
+            simState[key] = value;
+        }
+    }
+
+    // Forward live delta update to the active page
+    if (pages[activePage] && typeof pages[activePage].update === 'function') {
+        try {
+            pages[activePage].update(data);
+        } catch (err) {
+            console.error(`[FlightDeck] Error updating active page "${activePage}":`, err);
+        }
+    }
+}
+
+/**
+ * Establish WebSocket connection to PC Bridge on Port 3000
+ */
 function connectWebSocket() {
-  const bridgeHost = getBridgeHost();
-  const wsUrl = `ws://${bridgeHost}`;
-  
-  if (ws) {
-    try { ws.close(); } catch (e) {}
-  }
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
 
-  try {
-    ws = new WebSocket(wsUrl);
-  } catch (err) {
-    console.error('[WS Error] Could not construct WebSocket:', err);
-    return;
-  }
+    const host = window.location.hostname || 'localhost';
+    const wsUrl = `ws://${host}:3000`;
 
-  const simStatus = document.getElementById('sim-status');
+    updateStatus('connecting');
 
-  ws.onopen = () => {
-    console.log('[WS] Connected to PC bridge at', wsUrl);
-  };
-
-  ws.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data);
+        ws = new WebSocket(wsUrl);
 
-      if (data.type === 'SIM_STATUS') {
-        if (data.connected) {
-          simStatus.className = 'wifi-badge connected';
-        } else {
-          simStatus.className = 'wifi-badge disconnected';
+        ws.onopen = () => {
+            console.log('[FlightDeck] Connected to PC Bridge on port 3000');
+            updateStatus('connected');
+            clearInterval(reconnectInterval);
+            reconnectInterval = null;
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                handleData(message);
+            } catch (err) {
+                console.warn('[FlightDeck] Non-JSON message received:', event.data);
+            }
+        };
+
+        ws.onclose = () => {
+            updateStatus('disconnected');
+            if (!reconnectInterval) {
+                reconnectInterval = setInterval(connectWebSocket, 2000);
+            }
+        };
+
+        ws.onerror = (err) => {
+            console.error('[FlightDeck] WebSocket error:', err);
+            ws.close();
+        };
+    } catch (err) {
+        console.error('[FlightDeck] Connection failed:', err);
+        if (!reconnectInterval) {
+            reconnectInterval = setInterval(connectWebSocket, 2000);
         }
-      } else if (data.type === 'PROFILE_STATE') {
-        updateProfileBadge(data.profile_name);
-      } else if (data.type === 'RADIO_STATE') {
-        if (data.profile_name) {
-          updateProfileBadge(data.profile_name);
-        }
-        if (currentPage === 'radios') {
-          updateRadioDisplays(data);
-        }
-      } else if (data.type === 'AUTOPILOT_STATE' || data.type === 'AP_STATE') {
-        if (currentPage === 'autopilot') {
-          updateAutopilotDisplays(data);
-        }
-      }
-    } catch (e) {
-      console.error('[WS Error]', e);
     }
-  };
-
-  ws.onclose = () => {
-    if (simStatus) simStatus.className = 'wifi-badge disconnected';
-    setTimeout(connectWebSocket, 4000);
-  };
 }
 
-export function sendSimCommand(category, event, value) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'SIM_COMMAND',
-      category,
-      event,
-      value
-    }));
-  }
+/**
+ * Update UI connection status indicator
+ * @param {'connected'|'connecting'|'disconnected'} status 
+ */
+function updateStatus(status) {
+    if (statusDot) {
+        statusDot.className = `status-dot ${status}`;
+    }
+    if (statusText) {
+        statusText.textContent = status.toUpperCase();
+    }
 }
 
-function switchPage(pageKey) {
-  if (!pages[pageKey]) return;
-  currentPage = pageKey;
-
-  document.querySelectorAll('.menu-item-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === pageKey);
-  });
-
-  const content = document.getElementById('content-area');
-  content.innerHTML = pages[pageKey].render();
-  pages[pageKey].init();
-
-  closeMenu();
-}
-
-function toggleMenu() {
-  isMenuOpen = !isMenuOpen;
-  const menuDropdown = document.getElementById('menu-dropdown');
-  if (isMenuOpen) {
-    menuDropdown.classList.add('open');
-  } else {
-    menuDropdown.classList.remove('open');
-  }
-}
-
-function closeMenu() {
-  isMenuOpen = false;
-  const menuDropdown = document.getElementById('menu-dropdown');
-  if (menuDropdown) {
-    menuDropdown.classList.remove('open');
-  }
-}
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('msfs_theme') || 'dark';
-  applyTheme(savedTheme);
-
-  const toggleCheckbox = document.getElementById('theme-toggle-checkbox');
-  if (toggleCheckbox) {
-    toggleCheckbox.checked = (savedTheme === 'light');
-    toggleCheckbox.addEventListener('change', (e) => {
-      const nextTheme = e.target.checked ? 'light' : 'dark';
-      applyTheme(nextTheme);
+/**
+ * Setup navigation listeners
+ */
+function setupNav() {
+    navButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const targetPage = btn.dataset.page;
+            if (targetPage && targetPage !== activePage) {
+                setPage(targetPage);
+            }
+        });
     });
-  }
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('msfs_theme', theme);
-
-  const labelText = document.getElementById('theme-label-text');
-  const icon = document.getElementById('theme-icon');
-
-  if (theme === 'light') {
-    if (labelText) labelText.textContent = 'Light Theme';
-    if (icon) {
-      icon.innerHTML = `<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>`;
+/**
+ * App initialization
+ */
+function init() {
+    // Register service worker for offline/PWA support
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+            console.warn('[FlightDeck] Service worker registration failed:', err);
+        });
     }
-  } else {
-    if (labelText) labelText.textContent = 'Dark Theme';
-    if (icon) {
-      icon.innerHTML = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`;
-    }
-  }
+
+    setupNav();
+    connectWebSocket();
+    setPage(activePage);
 }
 
-function initPwaInstall() {
-  const installBtn = document.getElementById('pwa-install-btn');
-  if (installBtn) {
-    installBtn.addEventListener('click', async () => {
-      closeMenu();
-
-      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log('[PWA] Prompt choice:', outcome);
-        if (outcome === 'accepted') {
-          deferredPrompt = null;
-        }
-      } else if (isIos) {
-        document.getElementById('ios-install-modal')?.classList.remove('hidden');
-      } else {
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-          alert('Flight Deck is already running as an installed standalone app.');
-        } else {
-          alert('Ready to install: Tap Chrome\'s menu (⋮) -> "Install app".');
-        }
-      }
-    });
-  }
-
-  document.getElementById('ios-install-done-btn')?.addEventListener('click', () => {
-    document.getElementById('ios-install-modal')?.classList.add('hidden');
-  });
+// Start app when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
 }
-
-document.getElementById('menu-toggle-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  toggleMenu();
-});
-
-document.addEventListener('click', (e) => {
-  if (isMenuOpen && !e.target.closest('#menu-dropdown') && !e.target.closest('#menu-toggle-btn')) {
-    closeMenu();
-  }
-});
-
-document.querySelectorAll('.menu-item-btn[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => switchPage(btn.dataset.page));
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initPwaInstall();
-  switchPage('radios');
-  setTimeout(connectWebSocket, 500);
-});
