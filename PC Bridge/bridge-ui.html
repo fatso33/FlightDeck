@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Flight Deck Bridge</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 16px;
+      user-select: none;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #58a6ff;
+    }
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .connected { background: #238636; color: #fff; }
+    .disconnected { background: #da3633; color: #fff; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .card-label {
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .card-val {
+      font-size: 14px;
+      color: #f0f6fc;
+      font-weight: 600;
+    }
+    .profile-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    select {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #79c0ff;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      flex: 1;
+    }
+    .btn {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #58a6ff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn:hover { background: #30363d; }
+    .log-box {
+      background: #010409;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      height: 180px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      color: #8b949e;
+    }
+    .log-entry { margin-bottom: 4px; }
+    .log-entry.cmd { color: #7ee787; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">FLIGHT DECK BRIDGE</div>
+    <div id="sim-status" class="status-badge disconnected">DISCONNECTED</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Active Aircraft Profile</div>
+    <div class="profile-row">
+      <select id="profile-selector" onchange="changeProfile()"></select>
+      <button class="btn" onclick="openConfigWindow()">Configure</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Mobile Connection URL</div>
+    <div id="server-url" class="card-val" style="color: #79c0ff;">http://localhost:3000</div>
+  </div>
+
+  <div class="card-label">Live Sim Event Stream</div>
+  <div id="log-container" class="log-box"></div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const logBox = document.getElementById('log-container');
+    const select = document.getElementById('profile-selector');
+
+    function generateCrispIconDataUrl(color, size = 64) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = color;
+      ctx.font = `bold ${Math.round(size * 0.68)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('FD', size / 2, size / 2 + 1);
+
+      return canvas.toDataURL('image/png');
+    }
+
+    // Garmin Cyan (#00F0FF) & True Garmin Magenta (#FF00FF)
+    const iconData = {
+      cyan: generateCrispIconDataUrl('#00F0FF', 64),
+      magenta: generateCrispIconDataUrl('#FF00FF', 64)
+    };
+
+    ipcRenderer.send('register-dynamic-icons', iconData);
+
+    function refreshProfiles() {
+      const data = ipcRenderer.sendSync('get-profiles-data');
+      select.innerHTML = '';
+      data.profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.innerText = p.name;
+        if (p.id === data.activeProfileId) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    function changeProfile() {
+      ipcRenderer.send('set-active-profile', select.value);
+    }
+
+    function openConfigWindow() {
+      ipcRenderer.send('open-config-window');
+    }
+
+    ipcRenderer.on('status-update', (event, data) => {
+      if (data.type === 'INIT') {
+        document.getElementById('server-url').innerText = data.url;
+      } else if (data.type === 'STATUS') {
+        const el = document.getElementById('sim-status');
+        el.className = 'status-badge ' + (data.connected ? 'connected' : 'disconnected');
+        el.innerText = data.connected ? 'SIM CONNECTED' : 'DISCONNECTED';
+      } else if (data.type === 'PROFILE_CHANGED') {
+        refreshProfiles();
+      } else if (data.type === 'COMMAND') {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry cmd';
+        entry.innerText = '[' + data.timestamp + '] ' + data.command;
+        logBox.appendChild(entry);
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      refreshProfiles();
+    });
+  </script>
+</body>
+</html>

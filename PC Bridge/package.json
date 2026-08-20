@@ -1,0 +1,40 @@
+{
+  "name": "Flight Deck Bridge",
+  "version": "1.0.0",
+  "description": "Flight Deck Bridge with System Tray & Configurable Profiles",
+  "main": "main.js",
+  "type": "module",
+  "author": "YourName",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.flightdeck.bridge",
+    "productName": "Flight Deck Bridge",
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Flight Deck Bridge"
+    }
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-simconnect": "^4.0.0",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

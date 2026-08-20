@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Aircraft Profile Configuration</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+    .header-section {
+      padding: 16px 20px 0 20px;
+      flex-shrink: 0;
+    }
+    .top-bar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    select, input {
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #f0f6fc;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      font-family: inherit;
+    }
+    select:focus, input:focus { 
+      border-color: #58a6ff; 
+      background: #1c2128;
+    }
+    .is-readonly {
+      background: #090d13 !important;
+      color: #6e7681 !important;
+      border-color: #21262d !important;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 12px;
+      border: 1px solid rgba(240,246,252,0.1);
+    }
+    .btn-primary { background: #1f6feb; color: #fff; border-color: #388bfd; }
+    .btn-primary:hover { background: #388bfd; }
+    .btn-save-apply { background: #238636; color: #fff; border-color: #2ea043; }
+    .btn-save-apply:hover { background: #2ea043; }
+    .btn-sec { background: #21262d; border-color: #30363d; color: #c9d1d9; }
+    .btn-sec:hover { background: #30363d; }
+    .btn-del { background: #da3633; color: #fff; border: none; }
+    .btn-del:hover { background: #b62324; }
+
+    /* Horizontal Category Tabs */
+    .tab-bar {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid #21262d;
+      margin-top: 12px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #8b949e;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      color: #58a6ff;
+      border-bottom: 2px solid #58a6ff;
+    }
+    .tab-btn:hover:not(.active) {
+      color: #c9d1d9;
+    }
+
+    /* Scrollable Mapping Area */
+    .content-section {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 180px 1fr 180px;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .header-row {
+      font-weight: 700;
+      font-size: 11px;
+      color: #8b949e;
+      text-transform: uppercase;
+      border-bottom: 1px solid #21262d;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .action-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #79c0ff;
+    }
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: #8b949e;
+      font-size: 13px;
+    }
+
+    /* Fixed Sticky Footer */
+    .footer-bar {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      background: #161b22;
+      border-top: 1px solid #21262d;
+    }
+    .banner-msg {
+      font-size: 12px;
+      font-weight: 600;
+      color: #7ee787;
+    }
+    .banner-msg.err {
+      color: #ff7b72;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    /* In-Window Modal */
+    .custom-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .custom-modal-overlay.hidden {
+      display: none;
+    }
+    .custom-modal {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .custom-modal-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f0f6fc;
+      margin-bottom: 8px;
+    }
+    .custom-modal-msg {
+      font-size: 13px;
+      color: #c9d1d9;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .custom-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-section">
+    <div class="top-bar">
+      <label style="font-weight:700; font-size:13px;">Profile:</label>
+      <select id="profile-select" style="flex:1;" onchange="onProfileSelectChange()"></select>
+      <button class="btn btn-sec" onclick="createNewProfile()">+ New Profile</button>
+      <button class="btn btn-del" id="delete-btn" onclick="deleteCurrentProfile()">Delete</button>
+    </div>
+
+    <div>
+      <label style="font-weight:700; font-size:12px; color:#8b949e;">Profile Display Name:</label>
+      <input type="text" id="profile-name-input" style="width: 100%; margin-top: 4px;" oninput="markDirty()" />
+    </div>
+
+    <!-- Category Tabs -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-radio" onclick="switchCategory('radio')">Radios & Transponder</button>
+      <button class="tab-btn" id="tab-ap" onclick="switchCategory('ap')">Autopilot</button>
+    </div>
+  </div>
+
+  <div class="content-section">
+    <div class="grid header-row" id="grid-header">
+      <div>Deck Action</div>
+      <div>SimConnect / L-Var Event</div>
+      <div>Value Format</div>
+    </div>
+    <div id="mappings-container"></div>
+  </div>
+
+  <div class="footer-bar">
+    <span id="status-banner" class="banner-msg"></span>
+    <div class="btn-group">
+      <button class="btn btn-sec" onclick="onCancelClick()">Close</button>
+      <button class="btn btn-primary" onclick="onSavePresetClick()">Save Preset</button>
+      <button class="btn btn-save-apply" onclick="onSaveAndApplyClick()">Save & Apply</button>
+    </div>
+  </div>
+
+  <!-- In-Window Modal Dialog -->
+  <div id="confirm-modal" class="custom-modal-overlay hidden">
+    <div class="custom-modal">
+      <div id="modal-title" class="custom-modal-title">Confirm Action</div>
+      <div id="modal-msg" class="custom-modal-msg"></div>
+      <div class="custom-modal-actions">
+        <button id="modal-no-btn" class="btn btn-sec">No</button>
+        <button id="modal-yes-btn" class="btn btn-primary">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let profileData = ipcRenderer.sendSync('get-profiles-data');
+    let currentWorkingId = null;
+    let isDraftNew = false;
+    let isDirty = false;
+    let currentCategory = 'radio';
+    let currentMappingsCache = {};
+
+    const DEFAULT_PROFILE_ID = 'default_ga';
+
+    const CATEGORY_ACTIONS = {
+      radio: [
+        { key: 'COM1_SWAP', label: 'COM 1 Swap' },
+        { key: 'COM1_SET', label: 'COM 1 Standby Set' },
+        { key: 'COM2_SWAP', label: 'COM 2 Swap' },
+        { key: 'COM2_SET', label: 'COM 2 Standby Set' },
+        { key: 'NAV1_SWAP', label: 'NAV 1 Swap' },
+        { key: 'NAV1_SET', label: 'NAV 1 Standby Set' },
+        { key: 'NAV2_SWAP', label: 'NAV 2 Swap' },
+        { key: 'NAV2_SET', label: 'NAV 2 Standby Set' },
+        { key: 'XPNDR_SET', label: 'Squawk Code Set' },
+        { key: 'XPNDR_IDENT', label: 'Transponder Ident' }
+      ],
+      ap: [] // Autopilot depopulated for now
+    };
+
+    const ALL_ACTION_KEYS = [...CATEGORY_ACTIONS.radio, ...CATEGORY_ACTIONS.ap];
+
+    const FORMAT_OPTIONS = [
+      { val: 'HZ_INT', label: 'Hz Integer (128875000)' },
+      { val: 'KHZ_INT', label: 'kHz Integer (128875)' },
+      { val: 'MHZ_FLOAT', label: 'MHz Decimal (128.875)' },
+      { val: 'BCD_HEX', label: 'BCD / Hex (0x1200)' },
+      { val: 'RAW_INT', label: 'Raw Integer (1200)' },
+      { val: 'FIXED_0', label: 'Fixed Parameter 0' },
+      { val: 'FIXED_1', label: 'Fixed Parameter 1' }
+    ];
+
+    function markDirty() {
+      isDirty = true;
+    }
+
+    function showConfirmModal(title, message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-msg').innerText = message;
+
+        modal.classList.remove('hidden');
+
+        const yesBtn = document.getElementById('modal-yes-btn');
+        const noBtn = document.getElementById('modal-no-btn');
+
+        const onYes = () => { cleanup(); resolve(true); };
+        const onNo = () => { cleanup(); resolve(false); };
+
+        const cleanup = () => {
+          modal.classList.add('hidden');
+          yesBtn.removeEventListener('click', onYes);
+          noBtn.removeEventListener('click', onNo);
+        };
+
+        yesBtn.addEventListener('click', onYes);
+        noBtn.addEventListener('click', onNo);
+      });
+    }
+
+    function showBanner(msg, isErr = false) {
+      const el = document.getElementById('status-banner');
+      el.className = 'banner-msg' + (isErr ? ' err' : '');
+      el.innerText = msg;
+      setTimeout(() => { el.innerText = ''; }, 4000);
+    }
+
+    function syncInputsToCache() {
+      CATEGORY_ACTIONS[currentCategory].forEach(action => {
+        const ev = document.getElementById(`event-${action.key}`);
+        const fmt = document.getElementById(`format-${action.key}`);
+        if (ev && fmt) {
+          currentMappingsCache[action.key] = {
+            event: ev.value.trim(),
+            valueFormat: fmt.value
+          };
+        }
+      });
+    }
+
+    function switchCategory(cat) {
+      syncInputsToCache();
+      currentCategory = cat;
+      document.getElementById('tab-radio').classList.toggle('active', cat === 'radio');
+      document.getElementById('tab-ap').classList.toggle('active', cat === 'ap');
+      renderCategoryMappings();
+    }
+
+    function renderCategoryMappings() {
+      const container = document.getElementById('mappings-container');
+      const header = document.getElementById('grid-header');
+      container.innerHTML = '';
+
+      const actions = CATEGORY_ACTIONS[currentCategory];
+      const isDefault = (currentWorkingId === DEFAULT_PROFILE_ID && !isDraftNew);
+
+      if (actions.length === 0) {
+        header.style.display = 'none';
+        container.innerHTML = '<div class="empty-state">No configurable autopilot actions available yet.</div>';
+        return;
+      }
+
+      header.style.display = 'grid';
+      actions.forEach(action => {
+        const mapping = currentMappingsCache[action.key] || { event: '', valueFormat: 'RAW_INT' };
+        const row = document.createElement('div');
+        row.className = 'grid';
+        row.innerHTML = `
+          <div class="action-name">${action.label}</div>
+          <input type="text" id="event-${action.key}" placeholder="e.g. ${action.key}" 
+                 value="${mapping.event || ''}" 
+                 ${isDefault ? 'readonly class="is-readonly"' : ''} 
+                 oninput="markDirty()" />
+          <select id="format-${action.key}" 
+                  ${isDefault ? 'disabled class="is-readonly"' : ''} 
+                  onchange="markDirty()">
+            ${FORMAT_OPTIONS.map(f => `<option value="${f.val}" ${mapping.valueFormat === f.val ? 'selected' : ''}>${f.label}</option>`).join('')}
+          </select>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function applyReadOnlyState(isReadOnly) {
+      const nameInput = document.getElementById('profile-name-input');
+      nameInput.readOnly = isReadOnly;
+      nameInput.classList.toggle('is-readonly', isReadOnly);
+      document.getElementById('delete-btn').style.display = isReadOnly ? 'none' : 'block';
+      renderCategoryMappings();
+    }
+
+    function renderDropdown(selectedId) {
+      const select = document.getElementById('profile-select');
+      select.innerHTML = '';
+
+      profileData.profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.innerText = p.name;
+        if (p.id === selectedId) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    function loadProfileIntoUI(profileId) {
+      isDraftNew = false;
+      currentWorkingId = profileId;
+      const profile = profileData.profiles.find(p => p.id === profileId) || profileData.profiles[0];
+
+      document.getElementById('profile-name-input').value = profile.name;
+      currentMappingsCache = JSON.parse(JSON.stringify(profile.mappings || {}));
+
+      const isDefault = (profile.id === DEFAULT_PROFILE_ID);
+      applyReadOnlyState(isDefault);
+      isDirty = false;
+    }
+
+    async function onProfileSelectChange() {
+      const select = document.getElementById('profile-select');
+      if (isDirty) {
+        const discard = await showConfirmModal('Discard Changes', 'You have unsaved changes. Discard them?');
+        if (!discard) {
+          select.value = currentWorkingId;
+          return;
+        }
+      }
+      renderDropdown(select.value);
+      loadProfileIntoUI(select.value);
+    }
+
+    async function createNewProfile() {
+      if (isDirty) {
+        const discard = await showConfirmModal('Discard Changes', 'You have unsaved changes. Discard and create a new profile?');
+        if (!discard) return;
+      }
+
+      const templateName = document.getElementById('profile-name-input').value;
+      const newName = (templateName && templateName !== 'Default (Generic GA / MSFS 2024)') 
+        ? `${templateName} (Copy)` 
+        : 'New Custom Aircraft';
+
+      isDraftNew = true;
+      currentWorkingId = 'profile_' + Date.now();
+      
+      document.getElementById('profile-name-input').value = newName;
+      applyReadOnlyState(false);
+
+      const select = document.getElementById('profile-select');
+      select.innerHTML = '';
+      profileData.profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.innerText = p.name;
+        select.appendChild(opt);
+      });
+
+      const draftOpt = document.createElement('option');
+      draftOpt.value = currentWorkingId;
+      draftOpt.innerText = `* ${newName}`;
+      draftOpt.selected = true;
+      select.appendChild(draftOpt);
+
+      isDirty = true;
+      setTimeout(() => { document.getElementById('profile-name-input').focus(); }, 50);
+    }
+
+    async function deleteCurrentProfile() {
+      if (currentWorkingId === DEFAULT_PROFILE_ID || isDraftNew) return;
+      const ok = await showConfirmModal('Delete Profile', 'Are you sure you want to delete this profile?');
+      if (!ok) return;
+
+      ipcRenderer.send('delete-profile', currentWorkingId);
+      profileData = ipcRenderer.sendSync('get-profiles-data');
+      renderDropdown(DEFAULT_PROFILE_ID);
+      loadProfileIntoUI(DEFAULT_PROFILE_ID);
+      showBanner('Profile deleted.');
+    }
+
+    async function performSave(onSuccess) {
+      syncInputsToCache();
+      const nameInput = document.getElementById('profile-name-input');
+      const enteredName = nameInput.value.trim();
+
+      if (!enteredName) {
+        showBanner('Please enter a profile name.', true);
+        return;
+      }
+
+      if (!isDraftNew && currentWorkingId === DEFAULT_PROFILE_ID) {
+        showBanner('Default profile cannot be overwritten. Click "+ New Profile".', true);
+        return;
+      }
+
+      const existingProfile = profileData.profiles.find(p => p.name.toLowerCase() === enteredName.toLowerCase());
+      let saveId = currentWorkingId;
+
+      if (existingProfile) {
+        if (existingProfile.id === DEFAULT_PROFILE_ID) {
+          showBanner('Cannot overwrite Default profile name.', true);
+          return;
+        }
+
+        const confirmOverwrite = await showConfirmModal(
+          'Overwrite Existing Profile',
+          `A profile named "${existingProfile.name}" already exists. Are you sure you want to overwrite it?`
+        );
+        if (!confirmOverwrite) return;
+        saveId = existingProfile.id;
+      }
+
+      const profilePayload = {
+        id: saveId,
+        name: enteredName,
+        mappings: currentMappingsCache
+      };
+
+      ipcRenderer.send('save-profile', profilePayload);
+      profileData = ipcRenderer.sendSync('get-profiles-data');
+
+      isDraftNew = false;
+      isDirty = false;
+      renderDropdown(saveId);
+      loadProfileIntoUI(saveId);
+
+      onSuccess(saveId);
+    }
+
+    function onSavePresetClick() {
+      performSave(() => {
+        showBanner('Profile saved successfully.');
+      });
+    }
+
+    function onSaveAndApplyClick() {
+      performSave((savedId) => {
+        ipcRenderer.send('set-active-profile', savedId);
+        ipcRenderer.send('close-config-window');
+      });
+    }
+
+    async function onCancelClick() {
+      if (isDirty) {
+        const discard = await showConfirmModal('Discard Changes', 'You have unsaved changes. Discard and close?');
+        if (discard) {
+          ipcRenderer.send('close-config-window');
+        }
+      } else {
+        ipcRenderer.send('close-config-window');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      renderDropdown(profileData.activeProfileId);
+      loadProfileIntoUI(profileData.activeProfileId);
+    });
+  </script>
+</body>
+</html>
